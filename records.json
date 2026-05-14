@@ -6,6 +6,34 @@
       "work_type": "تحرير",
       "total": 0.5,
       "notes": ""
+    },
+    {
+      "work_name": "the tyrant brother is bonnus",
+      "chapter": "2",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": ""
+    },
+    {
+      "work_name": "Lingering Pain",
+      "chapter": "8",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": ""
+    },
+    {
+      "work_name": "If You Like Someone, You Become Stupid",
+      "chapter": "3",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": ""
+    },
+    {
+      "work_name": "The Duchess Lives Only for This Day",
+      "chapter": "19",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": ""
     }
   ],
   "1341402777313873994": [
@@ -15,6 +43,55 @@
       "work_type": "تبييض",
       "total": 0.25,
       "notes": ""
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "5",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "6",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "22",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "11",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "18",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Don't Tame It Carelessly",
+      "chapter": "26",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Classmate",
+      "chapter": "44",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": "اختياري"
     }
   ],
   "1119935890496696422": [
@@ -32,6 +109,654 @@
       "chapter": "5",
       "work_type": "ترجمة",
       "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Lingering Pain",
+      "chapter": "8",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Goddess of Fortune",
+      "chapter": "10",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "I Only Need the Duke's Child",
+      "chapter": "11",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "I Only Need the Duke's Child",
+      "chapter": "11",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Chat with Me",
+      "chapter": "10",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": "اختياري"
+    }
+  ],
+  "1495445873780461651": [
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "13",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "20",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Brunette’s Reaper",
+      "chapter": "31",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Brunette’s Reaper",
+      "chapter": "32",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "If You Like Someone, You Become Stupid",
+      "chapter": "2",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Foreign Object Was Me",
+      "chapter": "68",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Lady Is a Stalker",
+      "chapter": "34",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    }
+  ],
+  "1216084628453200015": [
+    {
+      "work_name": "For Your Murder",
+      "chapter": "69",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": "طويل"
+    },
+    {
+      "work_name": "Dépaysement",
+      "chapter": "10",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Dépaysement",
+      "chapter": "11",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Dépaysement",
+      "chapter": "12",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Dépaysement",
+      "chapter": "13",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Bunker Days",
+      "chapter": "22",
+      "work_type": "ترجمة",
+      "total": 0.5,
+      "notes": "اختياري"
+    }
+  ],
+  "1500919142994411520": [
+    {
+      "work_name": "If You Like Someone, You Become Stupid",
+      "chapter": "1",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "If You Like Someone, You Become Stupid",
+      "chapter": "2",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": ""
+    },
+    {
+      "work_name": "If You Like Someone, You Become Stupid",
+      "chapter": "3",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": ""
+    },
+    {
+      "work_name": "If You Like Someone, You Become Stupid",
+      "chapter": "4",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": ""
+    },
+    {
+      "work_name": "If You Like Someone, You Become Stupid",
+      "chapter": "5",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "If You Like Someone, You Become Stupid",
+      "chapter": "6",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "<The Duchess Lives Only for This Day>",
+      "chapter": "19",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "<The Tyrant Brother is A Bonus>",
+      "chapter": "22",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "<The Tyrant Brother is A Bonus>",
+      "chapter": "21",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "<The Brunette's Reaper>",
+      "chapter": "32",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "<Lingering Pain>",
+      "chapter": "8",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "< The Lady Is a Stalker >",
+      "chapter": "35",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "Bunker days",
+      "chapter": "22",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "<The Tyrant Brother is A Bonus>",
+      "chapter": "21",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "<The Ghost Duchess>",
+      "chapter": "30",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "<The Foreign Object Was Me>",
+      "chapter": "68",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "Special Civil Servant",
+      "chapter": "68",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "نهاية موسم"
+    },
+    {
+      "work_name": "<Lingering Pain>",
+      "chapter": "7",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "The Kind Intruder",
+      "chapter": "26",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "The Kind Intruder",
+      "chapter": "27",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "The Kind Intruder",
+      "chapter": "28",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "The Presepe Outside The Cage",
+      "chapter": "48",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "The Wandering Knight’s Survival Manual",
+      "chapter": "14",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "The Wandering Knight’s Survival Manual",
+      "chapter": "15",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "Classmates",
+      "chapter": "18",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "Classmates",
+      "chapter": "17",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "The Wandering Knight’s Survival Manual",
+      "chapter": "10",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "The Wandering Knight’s Survival Manual",
+      "chapter": "11",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "Perfection is everything",
+      "chapter": "20",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "The Wandering Knight’s Survival Manual",
+      "chapter": "9",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "The Wandering Knight’s Survival Manual",
+      "chapter": "10",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    },
+    {
+      "work_name": "If You Like Someone, You Become Stupid",
+      "chapter": "2",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختيار"
+    }
+  ],
+  "1202583085330333736": [
+    {
+      "work_name": "The Count’s Secret Maid",
+      "chapter": "89",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "If You Like Someone, You Become Stupid",
+      "chapter": "1",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "For your murder love",
+      "chapter": "69",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "22",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Don't Tame It Carelessly!",
+      "chapter": "26",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    }
+  ],
+  "1498678084969300020": [
+    {
+      "work_name": "وردية",
+      "chapter": "12",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "إختياري"
+    },
+    {
+      "work_name": "وردية",
+      "chapter": "19",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "إختياري"
+    },
+    {
+      "work_name": "حرارا",
+      "chapter": "1",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "إختياري"
+    },
+    {
+      "work_name": "حرارا",
+      "chapter": "2",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "إختياري"
+    }
+  ],
+  "1451966852421914631": [
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "4",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "9",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "10",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "16",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Perfection is everything",
+      "chapter": "42",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Goddess of Fortune",
+      "chapter": "10",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Lady Is a Stalker",
+      "chapter": "35",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Lady Is a Stalker",
+      "chapter": "36",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "حليو",
+      "chapter": "41",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    }
+  ],
+  "924663119047958569": [
+    {
+      "work_name": "وردية",
+      "chapter": "14",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    }
+  ],
+  "1444037716097499290": [
+    {
+      "work_name": "ملجأ",
+      "chapter": "22",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "حرارا",
+      "chapter": "4",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    }
+  ],
+  "1177267414786920451": [
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "6",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "7",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "2",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "3",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "5",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "6",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "The Tyrant Brother is A Bonus",
+      "chapter": "7",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Dépaysement",
+      "chapter": "10",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Dépaysement",
+      "chapter": "11",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Dépaysement",
+      "chapter": "12",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Dépaysement",
+      "chapter": "13",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Dépaysement",
+      "chapter": "14",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Dépaysement",
+      "chapter": "15",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Dépaysement",
+      "chapter": "16",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Dépaysement",
+      "chapter": "17",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Dépaysement",
+      "chapter": "18",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "class mates",
+      "chapter": "44",
+      "work_type": "تبييض",
+      "total": 0.25,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "class mates",
+      "chapter": "44",
+      "work_type": "تحرير",
+      "total": 0.5,
+      "notes": "اختياري"
+    },
+    {
+      "work_name": "Chat with Me",
+      "chapter": "10",
+      "work_type": "تبييض",
+      "total": 0.25,
       "notes": "اختياري"
     }
   ]
