@@ -13,9 +13,9 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN is None:
     raise ValueError("DISCORD_TOKEN is missing from .env file")
 
-MONGO_URI = os.getenv("MONGO_URI")
-if MONGO_URI is None:
-    raise ValueError("MONGO_URI is missing from .env file")
+MONGODB_URI = os.getenv("MONGODB_URI")
+if MONGODB_URI is None:
+    raise ValueError("MONGODB_URI is missing from .env file")
 
 ALLOWED_CHANNEL_NAME = "تسجيــــــــل-اعمال〢💵"
 
@@ -27,7 +27,7 @@ PRICES = {
 
 # MongoDB setup
 print("[LOG] Creating MongoDB client...")
-mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
+mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGODB_URI)
 db = mongo_client["work_bot"]
 collection = db["records"]
 
