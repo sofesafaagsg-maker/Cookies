@@ -1179,7 +1179,7 @@ async def bot_settings(interaction: discord.Interaction, العملة: str = Non
     await save_settings(SETTINGS)
     await interaction.response.send_message("✅ تم تحديث الإعدادات.", ephemeral=True)
 
-@bot.tree.command(name="مشاريع", description="عرض تقرير المشاريع (الروايات/المانجا)")
+@bot.tree.command(name="مشاريع", description="عرض تقارير الاعمال")
 async def projects_report(interaction: discord.Interaction):
     records = await load_records()
     projects = {}
