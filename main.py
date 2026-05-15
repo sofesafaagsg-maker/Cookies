@@ -379,7 +379,6 @@ async def upload_records(interaction: discord.Interaction, file: discord.Attachm
 async def help_slash(interaction: discord.Interaction):
     embed = discord.Embed(title="# 📌 أوامر البوت", color=discord.Color.purple())
     embed.add_field(name="## تسجيل شغل جديد", value="`!تحليل` أو `/تسجيل`\n*يستخدمه العضو لحفظ شغله.*", inline=False)
-    embed.add_field(name="## عرض أعمالك (مجمعة)", value="`!أعمالي` أو `/أعمالي`", inline=False)
     embed.add_field(name="## عرض شغل عضو (مجمّع)", value="`!شغل @member` أو `/شغل member:`", inline=False)
     embed.add_field(name="## تسجيل عدة فصول مرة واحدة", value="`!تسجيل_متعدد` أو `/تسجيل_متعدد`", inline=False)
     embed.add_field(name="## حذف سجل (للمشرفين)", value="`!حذف @member رقم` أو `/حذف`", inline=False)
