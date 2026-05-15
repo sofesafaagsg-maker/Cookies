@@ -407,7 +407,7 @@ async def only_allowed_channel(ctx):
 
 def is_admin(interaction: discord.Interaction) -> bool:
     # Require manage_guild permission (more restrictive than manage_messages)
-    return interaction.user.guild_permissions.manage_guild
+    return interaction.user.guild_permissions.manage_messages
 
 # ---------- Tasks ----------
 @tasks.loop(hours=24)
