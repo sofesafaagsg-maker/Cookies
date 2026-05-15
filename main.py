@@ -130,9 +130,10 @@ async def on_ready():
 
 @bot.check
 async def only_allowed_channel(ctx):
+    # Check if current channel name is in the list of allowed channel names
     if ctx.channel.name in ALLOWED_CHANNELS:
         return True
-    # Build list of allowed channels for error message
+    # Build list of allowed channels for error message (display channel names as #name)
     channels_str = ", ".join([f"#{ch}" for ch in ALLOWED_CHANNELS])
     await ctx.send(f"استخدم أوامر البوت فقط في أحد الرومات: {channels_str}.")
     return False
@@ -151,16 +152,21 @@ def is_admin(interaction: discord.Interaction) -> bool:
     return interaction.user.guild_permissions.manage_messages
 
 # ---------- Slash and Text command: تحديد_قنوات ----------
+# Slash version expects text channel arguments (type discord.TextChannel)
 @bot.tree.command(name="تحديد_قنوات", description="تحديد القنوات المسموحة (قناتين كحد أقصى) - للإدارة فقط")
-async def set_allowed_channels_slash(interaction: discord.Interaction, channel1: str, channel2: str = None):
+async def set_allowed_channels_slash(
+    interaction: discord.Interaction, 
+    channel1: discord.TextChannel, 
+    channel2: discord.TextChannel = None
+):
     if not is_admin(interaction):
         await interaction.response.send_message("ما عندك صلاحية تستخدم هذا الأمر.", ephemeral=True)
         return
     
-    # Prepare list of channels
-    channels = [channel1]
+    # Extract channel names
+    channels = [channel1.name]
     if channel2:
-        channels.append(channel2)
+        channels.append(channel2.name)
     
     # Remove duplicates and limit to 2
     channels = list(dict.fromkeys(channels))[:2]
@@ -173,12 +179,39 @@ async def set_allowed_channels_slash(interaction: discord.Interaction, channel1:
     channels_str = ", ".join([f"#{ch}" for ch in ALLOWED_CHANNELS])
     await interaction.response.send_message(f"✅ تم تحديث القنوات المسموحة إلى: {channels_str}", ephemeral=True)
 
+# Text version: accepts channel mentions or names
 @bot.command(name="تحديد_قنوات")
 @commands.has_permissions(manage_messages=True)
 async def set_allowed_channels_text(ctx, channel1: str, channel2: str = None):
-    channels = [channel1]
-    if channel2:
-        channels.append(channel2)
+    # Helper to extract channel name from various input formats
+    def extract_channel_name(input_str):
+        # If input is a channel mention like <#123456789>
+        if input_str.startswith('<#') and input_str.endswith('>'):
+            channel_id = int(input_str[2:-1])
+            channel = ctx.guild.get_channel(channel_id)
+            if channel:
+                return channel.name
+        # If input is a numeric ID
+        elif input_str.isdigit():
+            channel = ctx.guild.get_channel(int(input_str))
+            if channel:
+                return channel.name
+        # Otherwise assume it's a channel name
+        else:
+            # Try to find channel by name
+            for ch in ctx.guild.channels:
+                if ch.name == input_str:
+                    return ch.name
+        return input_str  # fallback to original string
+    
+    ch1_name = extract_channel_name(channel1)
+    ch2_name = extract_channel_name(channel2) if channel2 else None
+    
+    channels = [ch1_name]
+    if ch2_name:
+        channels.append(ch2_name)
+    
+    # Remove duplicates and limit to 2
     channels = list(dict.fromkeys(channels))[:2]
     
     global ALLOWED_CHANNELS
@@ -235,6 +268,7 @@ async def upload_records(interaction: discord.Interaction, file: discord.Attachm
 # ---------- Slash and Text command: اوامر (help) ----------
 @bot.tree.command(name="اوامر", description="عرض قائمة بجميع أوامر البوت")
 async def help_slash(interaction: discord.Interaction):
+    channels_str = ", ".join([f"#{ch}" for ch in ALLOWED_CHANNELS])
     await interaction.response.send_message(
         "**📌 أوامر البوت:**\n\n"
         "**1. تسجيل شغل جديد**\n"
@@ -268,12 +302,13 @@ async def help_slash(interaction: discord.Interaction):
         "**6. تحديد القنوات المسموحة - للإدارة فقط**\n"
         "`!تحديد_قنوات` أو `/تحديد_قنوات`\n"
         "يحدد قناة أو قناتين حيث يمكن استخدام البوت.\n\n"
-        f"**القنوات الحالية:** {', '.join([f'#{ch}' for ch in ALLOWED_CHANNELS])}\n\n"
+        f"**القنوات الحالية:** {channels_str}\n\n"
         "رقم السجل يظهر عند استخدام أمر `!شغل @member` مثل `#1` و `#2`."
     )
 
 @bot.command(name="اوامر")
 async def help_commands(ctx):
+    channels_str = ", ".join([f"#{ch}" for ch in ALLOWED_CHANNELS])
     await ctx.send(
         "**📌 أوامر البوت:**\n\n"
         "**1. تسجيل شغل جديد**\n"
@@ -307,7 +342,7 @@ async def help_commands(ctx):
         "**6. تحديد القنوات المسموحة - للإدارة فقط**\n"
         "`!تحديد_قنوات` أو `/تحديد_قنوات`\n"
         "يحدد قناة أو قناتين حيث يمكن استخدام البوت.\n\n"
-        f"**القنوات الحالية:** {', '.join([f'#{ch}' for ch in ALLOWED_CHANNELS])}\n\n"
+        f"**القنوات الحالية:** {channels_str}\n\n"
         "رقم السجل يظهر عند استخدام أمر `!شغل @member` مثل `#1` و `#2`."
     )
 
