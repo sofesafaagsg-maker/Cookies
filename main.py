@@ -132,24 +132,20 @@ async def update_stats():
     # Basic totals
     total_entries = sum(len(entries) for entries in records.values())
     total_amount = 0
-    type_counts = {k:0 for k in PRICES.keys()}
+    type_counts = {}
     member_stats = {}
     
     for user_id, entries in records.items():
         member_total = 0
-        member_counts = {k:0 for k in PRICES.keys()}
+        member_counts = {}
         for entry in entries:
             amount = entry.get("total", 0)
             total_amount += amount
             member_total += amount
             wtype = entry.get("work_type")
-            if wtype in type_counts:
-                type_counts[wtype] += 1
-                member_counts[wtype] += 1
-            else:
-                # fallback
-                type_counts[wtype] = type_counts.get(wtype,0)+1
-                member_counts[wtype] = member_counts.get(wtype,0)+1
+            # استخدام get للتجنب KeyError نهائياً
+            type_counts[wtype] = type_counts.get(wtype, 0) + 1
+            member_counts[wtype] = member_counts.get(wtype, 0) + 1
         member_stats[user_id] = {
             "total_amount": member_total,
             "total_entries": len(entries),
@@ -344,8 +340,6 @@ async def on_ready():
 async def only_allowed_channel(ctx):
     if ctx.channel.name in SETTINGS.get("allowed_channels", []):
         return True
-    # Only send message if command exists (ignore channel check for unknown commands? Actually we check before command runs)
-    # But we will keep the message
     channels_str = ", ".join([f"#{ch}" for ch in SETTINGS.get("allowed_channels", [])])
     await ctx.send(f"❌ استخدم أوامر البوت فقط في أحد الرومات: {channels_str}.")
     return False
@@ -1054,14 +1048,14 @@ class WorkDetailsView(discord.ui.View):
             embed.set_footer(text=f"صفحة {self.current_page+1} من {self.total_pages}")
         return embed
 
-# ---------- Projects command with nested buttons, fixed for 25 options limit ----------
+# ---------- Projects command with nested buttons, fixed for 25 options limit and pagination ----------
 class MemberSelect(discord.ui.Select):
     def __init__(self, work_name, members_info, guild):
         self.work_name = work_name
         self.members_info = members_info  # list of (user_id, user_name)
         self.guild = guild
         options = []
-        for uid, name in members_info[:25]:
+        for uid, name in members_info[:24]:  # 24 members + cancel = 25 max
             options.append(discord.SelectOption(label=name, value=str(uid), description=f"عرض فصول {name} في هذا العمل"))
         options.append(discord.SelectOption(label="❌ إلغاء", value="cancel"))
         super().__init__(placeholder="اختر عضواً لرؤية تفاصيل فصوله...", options=options)
@@ -1098,7 +1092,7 @@ class WorkSelect(discord.ui.Select):
         self.works_info = works_info  # list of (work_name, members_list)
         self.guild = guild
         options = []
-        for work_name, _ in works_info[:25]:
+        for work_name, _ in works_info[:24]:  # 24 works + cancel = 25 max
             options.append(discord.SelectOption(label=work_name, value=work_name, description="اختر هذا العمل لعرض المساهمين"))
         options.append(discord.SelectOption(label="❌ إلغاء", value="cancel"))
         super().__init__(placeholder="اختر العمل لعرض المساهمين...", options=options)
@@ -1116,6 +1110,44 @@ class WorkSelect(discord.ui.Select):
         view = discord.ui.View(timeout=60)
         view.add_item(select)
         await interaction.response.edit_message(content=f"**اختر عضواً من عمل `{work_name}`:**", view=view)
+
+# Paginated view for works
+class WorksPaginator(discord.ui.View):
+    def __init__(self, all_works_info, guild):
+        super().__init__(timeout=120)
+        self.all_works_info = all_works_info
+        self.guild = guild
+        self.current_page = 0
+        self.per_page = 24  # number of works per page (max 24 + cancel = 25)
+        self.total_pages = max(1, (len(all_works_info) + self.per_page - 1) // self.per_page)
+        self.update_buttons()
+
+    def update_buttons(self):
+        self.clear_items()
+        start = self.current_page * self.per_page
+        end = start + self.per_page
+        page_works = self.all_works_info[start:end]
+        select = WorkSelect(page_works, self.guild)
+        self.add_item(select)
+        if self.total_pages > 1:
+            if self.current_page > 0:
+                prev_btn = discord.ui.Button(label="◀ السابق", style=discord.ButtonStyle.primary)
+                prev_btn.callback = self.previous_page
+                self.add_item(prev_btn)
+            if self.current_page < self.total_pages - 1:
+                next_btn = discord.ui.Button(label="التالي ▶", style=discord.ButtonStyle.primary)
+                next_btn.callback = self.next_page
+                self.add_item(next_btn)
+
+    async def previous_page(self, interaction: discord.Interaction):
+        self.current_page -= 1
+        self.update_buttons()
+        await interaction.response.edit_message(view=self)
+
+    async def next_page(self, interaction: discord.Interaction):
+        self.current_page += 1
+        self.update_buttons()
+        await interaction.response.edit_message(view=self)
 
 @bot.tree.command(name="مشاريع", description="عرض جميع المشاريع (الأعمال) والمساهمين وتفاصيل الفصول")
 async def projects_report(interaction: discord.Interaction):
@@ -1148,17 +1180,10 @@ async def projects_report(interaction: discord.Interaction):
             members_list.append((uid, name))
         works_info.append((work, members_list))
     
-    # Limit to 25 works for the select menu
-    if len(works_info) > 25:
-        works_info = works_info[:25]
-    
     embed = discord.Embed(title="📚 **قائمة المشاريع (الأعمال)**", color=discord.Color.purple())
-    for work, members in works_info:
-        embed.add_field(name=f"**▸ {work}**", value=f"عدد المساهمين: {len(members)}", inline=False)
-    embed.set_footer(text="اختر عملاً من القائمة المنسدلة لرؤية المساهمين ثم تفاصيل كل عضو.")
-    view = discord.ui.View(timeout=120)
-    select = WorkSelect(works_info, guild)
-    view.add_item(select)
+    embed.add_field(name="عدد المشاريع", value=str(len(works_info)), inline=False)
+    embed.set_footer(text="اختر عملاً من القائمة المنسدلة لرؤية المساهمين. استخدم أزرار التنقل للصفحات.")
+    view = WorksPaginator(works_info, guild)
     await interaction.response.send_message(embed=embed, view=view)
 
 # ---------- Enhanced Stats Command ----------
