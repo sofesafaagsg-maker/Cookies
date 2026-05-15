@@ -1529,7 +1529,13 @@ async def init_prices():
         settings["prices"] = PRICES
         await save_settings(settings)
 
-# Run initialization
-bot.loop.create_task(init_prices())
+# نقوم بتعريف دالة الـ hook وتثبيتها داخل البوت
+async def custom_setup():
+    # هنا الـ loop جاهز تماماً ويمكننا إنشاء المهمة بأمان
+    bot.loop.create_task(init_prices())
 
+# نربط الدالة بالبوت قبل التشغيل
+bot.setup_hook = custom_setup
+
+# الآن يمكنك التشغيل بأمان
 bot.run(TOKEN)
