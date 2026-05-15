@@ -4,6 +4,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from io import BytesIO
 import re
+from collections import defaultdict
 
 import discord
 from discord.ext import commands, tasks
@@ -124,37 +125,86 @@ async def log_audit(action, moderator_id, target_id, details):
     await audit_collection.insert_one(log_entry)
 
 async def update_stats():
-    """Update daily/weekly/monthly stats"""
-    today = datetime.utcnow().date().isoformat()
-    week_start = (datetime.utcnow() - timedelta(days=datetime.utcnow().weekday())).date().isoformat()
-    month_start = datetime.utcnow().date().replace(day=1).isoformat()
-    
+    """Update comprehensive stats"""
     records = await load_records()
+    
+    # Basic totals
     total_entries = sum(len(entries) for entries in records.values())
     total_amount = 0
     type_counts = {"تحرير": 0, "ترجمة": 0, "تبييض": 0}
+    member_stats = {}
     
     for user_id, entries in records.items():
+        member_total = 0
+        member_counts = {"تحرير": 0, "ترجمة": 0, "تبييض": 0}
         for entry in entries:
             amount = entry.get("total", 0)
             total_amount += amount
+            member_total += amount
             wtype = entry.get("work_type")
             if wtype in type_counts:
                 type_counts[wtype] += 1
+                member_counts[wtype] += 1
+        member_stats[user_id] = {
+            "total_amount": member_total,
+            "total_entries": len(entries),
+            "type_counts": member_counts
+        }
+    
+    # Sort members by total amount (top 5)
+    top_members = sorted(member_stats.items(), key=lambda x: x[1]["total_amount"], reverse=True)[:5]
+    top_members_data = [(uid, stats) for uid, stats in top_members]
+    
+    # Calculate stats for different periods
+    today = datetime.utcnow().date()
+    week_start = today - timedelta(days=today.weekday())
+    month_start = today.replace(day=1)
+    today_iso = today.isoformat()
+    week_start_iso = week_start.isoformat()
+    month_start_iso = month_start.isoformat()
+    
+    daily_entries = 0
+    daily_amount = 0
+    weekly_entries = 0
+    weekly_amount = 0
+    monthly_entries = 0
+    monthly_amount = 0
+    
+    for user_id, entries in records.items():
+        for entry in entries:
+            ts = entry.get("timestamp")
+            if ts:
+                try:
+                    entry_date = datetime.fromisoformat(ts).date()
+                    if entry_date == today:
+                        daily_entries += 1
+                        daily_amount += entry.get("total", 0)
+                    if entry_date >= week_start:
+                        weekly_entries += 1
+                        weekly_amount += entry.get("total", 0)
+                    if entry_date >= month_start:
+                        monthly_entries += 1
+                        monthly_amount += entry.get("total", 0)
+                except:
+                    pass
     
     stat_doc = {
-        "date": today,
-        "week": week_start,
-        "month": month_start,
         "total_entries": total_entries,
         "total_amount": total_amount,
-        "type_counts": type_counts
+        "type_counts": type_counts,
+        "member_stats": member_stats,
+        "top_members": top_members_data,
+        "daily": {"entries": daily_entries, "amount": daily_amount},
+        "weekly": {"entries": weekly_entries, "amount": weekly_amount},
+        "monthly": {"entries": monthly_entries, "amount": monthly_amount},
+        "last_updated": datetime.utcnow().isoformat()
     }
     await stats_collection.update_one(
         {"_id": "stats"},
         {"$set": stat_doc},
         upsert=True
     )
+    print("[LOG] Stats updated successfully")
 
 def parse_fields(text):
     fields = {}
@@ -241,6 +291,9 @@ async def on_ready():
     print("[LOG] Syncing slash commands...")
     await bot.tree.sync()
     print("[LOG] Slash commands synced")
+    
+    # Update stats at startup
+    await update_stats()
     
     # Start daily backup task
     daily_backup.start()
@@ -374,6 +427,9 @@ async def upload_records(interaction: discord.Interaction, file: discord.Attachm
 
         print(f"[LOG] Data restored via slash command: users={total_users}, entries={total_entries}")
         await log_audit("رفع_البيانات", interaction.user.id, None, f"تم رفع {total_entries} سجل")
+        
+        # Update stats after restore
+        await update_stats()
 
         await interaction.followup.send(
             f"✅ تم استعادة البيانات بنجاح!\n"
@@ -475,7 +531,7 @@ class RegisterModal(discord.ui.Modal, title="تسجيل شغل جديد"):
             added += 1
         
         await save_records(records)
-        await update_stats()
+        await update_stats()  # Update stats after addition
         
         # Build response embed
         embed = discord.Embed(title="✅ **تم حفظ الشغل بنجاح**", color=discord.Color.green())
@@ -583,7 +639,7 @@ async def analysis(ctx, *, text=None):
         added += 1
 
     await save_records(records)
-    await update_stats()
+    await update_stats()  # Update stats after addition
 
     embed = discord.Embed(title="✅ **تم حفظ الشغل بنجاح**", color=discord.Color.green())
     embed.add_field(name="**📖 العمل**", value=work_name, inline=True)
@@ -628,7 +684,6 @@ class DeleteSelect(discord.ui.Select):
             options.append(discord.SelectOption(label="🔍 حذف فصل محدد", value="delete_chapter", description="اختيار فصل لحذفه"))
         else:
             options.append(discord.SelectOption(label="👤 حذف كل سجلات العضو", value="delete_all_user", description="حذف كل سجلات العضو بالكامل"))
-            # We'll get works list dynamically
         options.append(discord.SelectOption(label="❌ إلغاء", value="cancel"))
         super().__init__(placeholder="اختر إجراء...", options=options)
 
@@ -637,7 +692,6 @@ class DeleteSelect(discord.ui.Select):
             await interaction.response.edit_message(content="تم الإلغاء.", view=None)
             return
         if self.values[0] == "delete_all_user":
-            # Confirm deletion
             await interaction.response.send_message("⚠️ **تحذير:** هل أنت متأكد من حذف كل سجلات هذا العضو؟ هذا الإجراء لا يمكن التراجع عنه.\nأرسل `تأكيد` خلال 30 ثانية.", ephemeral=True)
             def check(m):
                 return m.author == interaction.user and m.content == "تأكيد" and m.channel == interaction.channel
@@ -651,11 +705,11 @@ class DeleteSelect(discord.ui.Select):
                 del records[str(self.user_id)]
                 await save_records(records)
                 await log_audit("حذف_كل_سجلات_العضو", interaction.user.id, self.user_id, "حذف كل السجلات")
+                await update_stats()  # Update stats after deletion
                 await interaction.followup.send(f"✅ تم حذف كل سجلات العضو.", ephemeral=True)
             else:
                 await interaction.followup.send("❌ لا توجد سجلات لهذا العضو.", ephemeral=True)
         elif self.values[0] == "delete_work" and self.work_name:
-            # Confirm delete work
             await interaction.response.send_message(f"⚠️ **تحذير:** هل أنت متأكد من حذف كل فصول عمل `{self.work_name}` للعضو؟ أرسل `تأكيد` خلال 30 ثانية.", ephemeral=True)
             def check(m):
                 return m.author == interaction.user and m.content == "تأكيد" and m.channel == interaction.channel
@@ -674,11 +728,11 @@ class DeleteSelect(discord.ui.Select):
                     del records[user_id_str]
                 await save_records(records)
                 await log_audit("حذف_عمل_كامل", interaction.user.id, self.user_id, f"حذف عمل {self.work_name} (عدد الفصول: {removed_count})")
+                await update_stats()  # Update stats after deletion
                 await interaction.followup.send(f"✅ تم حذف عمل `{self.work_name}` بالكامل ({removed_count} فصل).", ephemeral=True)
             else:
                 await interaction.followup.send("❌ لا توجد سجلات لهذا العضو.", ephemeral=True)
         elif self.values[0] == "delete_chapter":
-            # Show chapters to choose from
             records = await load_records()
             user_id_str = str(self.user_id)
             if user_id_str not in records:
@@ -698,7 +752,6 @@ class DeleteSelect(discord.ui.Select):
                     await interaction2.response.edit_message(content="تم الإلغاء.", view=None)
                     return
                 chapter = select.values[0]
-                # Confirm deletion
                 await interaction2.response.send_message(f"⚠️ هل أنت متأكد من حذف الفصل {chapter} من عمل `{self.work_name}`؟ أرسل `تأكيد` خلال 30 ثانية.", ephemeral=True)
                 def check(m):
                     return m.author == interaction2.user and m.content == "تأكيد" and m.channel == interaction2.channel
@@ -716,6 +769,7 @@ class DeleteSelect(discord.ui.Select):
                         del records2[user_id_str]
                     await save_records(records2)
                     await log_audit("حذف_فصل", interaction2.user.id, self.user_id, f"حذف فصل {chapter} من عمل {self.work_name}")
+                    await update_stats()  # Update stats after deletion
                     await interaction2.followup.send(f"✅ تم حذف الفصل {chapter} من عمل `{self.work_name}`.", ephemeral=True)
                 else:
                     await interaction2.followup.send("❌ لا توجد سجلات لهذا العضو.", ephemeral=True)
@@ -741,7 +795,6 @@ async def delete_advanced(interaction: discord.Interaction, member: discord.Memb
         return
 
     if work_name:
-        # Check if work exists for this user
         work_exists = any(e.get("work_name") == work_name for e in records[user_id_str])
         if not work_exists:
             await interaction.response.send_message(f"❌ لا يوجد عمل باسم `{work_name}` لهذا العضو.", ephemeral=True)
@@ -751,7 +804,6 @@ async def delete_advanced(interaction: discord.Interaction, member: discord.Memb
         view.add_item(select)
         await interaction.response.send_message(f"**🗑️ خيارات الحذف لعضو:** {member.mention}\n**العمل:** `{work_name}`", view=view)
     else:
-        # Show works for this user
         works = set(e.get("work_name") for e in records[user_id_str])
         options = []
         for w in works:
@@ -764,7 +816,6 @@ async def delete_advanced(interaction: discord.Interaction, member: discord.Memb
                 await interaction2.response.edit_message(content="تم الإلغاء.", view=None)
                 return
             if select.values[0] == "delete_all_user":
-                # Confirm deletion
                 await interaction2.response.send_message("⚠️ **تحذير:** هل أنت متأكد من حذف كل سجلات هذا العضو؟ أرسل `تأكيد` خلال 30 ثانية.", ephemeral=True)
                 def check(m):
                     return m.author == interaction2.user and m.content == "تأكيد" and m.channel == interaction2.channel
@@ -778,12 +829,12 @@ async def delete_advanced(interaction: discord.Interaction, member: discord.Memb
                     del records2[str(member.id)]
                     await save_records(records2)
                     await log_audit("حذف_كل_سجلات_العضو", interaction2.user.id, member.id, "حذف كل السجلات")
+                    await update_stats()  # Update stats after deletion
                     await interaction2.followup.send(f"✅ تم حذف كل سجلات العضو.", ephemeral=True)
                 else:
                     await interaction2.followup.send("❌ لا توجد سجلات لهذا العضو.", ephemeral=True)
             else:
                 work = select.values[0]
-                # Show options for that work
                 view2 = discord.ui.View(timeout=60)
                 select2 = DeleteSelect(member.id, work)
                 view2.add_item(select2)
@@ -816,6 +867,7 @@ async def delete_work_text(ctx, member: discord.Member = None, number: int = Non
         del records[user_id]
     await save_records(records)
     await log_audit("حذف سجل (نصي)", ctx.author.id, member.id, f"السجل #{number}: {deleted.get('work_name')} - فصل {deleted.get('chapter')}")
+    await update_stats()  # Update stats after deletion
 
     embed = discord.Embed(title="🗑️ **تم حذف السجل**", color=discord.Color.red())
     embed.add_field(name="**المستخدم**", value=member.mention, inline=True)
@@ -825,7 +877,7 @@ async def delete_work_text(ctx, member: discord.Member = None, number: int = Non
     embed.add_field(name="**المبلغ**", value=f"{SETTINGS.get('currency', '$')}{deleted.get('total', 0):.2f}", inline=True)
     await ctx.send(embed=embed)
 
-# ---------- Slash and Text command: حذف_الكل (original) ----------
+# ---------- Slash and Text command: حذف_الكل ----------
 @bot.tree.command(name="حذف_الكل", description="حذف كل السجلات من كل الأعضاء (للمشرفين)")
 async def delete_all_work_slash(interaction: discord.Interaction):
     if not is_admin(interaction):
@@ -845,6 +897,7 @@ async def delete_all_work_slash(interaction: discord.Interaction):
     records.clear()
     await save_records(records)
     await log_audit("حذف_الكل", interaction.user.id, None, f"عدد السجلات المحذوفة: {total_deleted}")
+    await update_stats()  # Update stats after deletion
 
     await interaction.response.send_message(f"🗑️ تم حذف كل السجلات من كل الأعضاء. عدد السجلات المحذوفة: {total_deleted}")
 
@@ -860,6 +913,7 @@ async def delete_all_work_text(ctx):
     records.clear()
     await save_records(records)
     await log_audit("حذف_الكل", ctx.author.id, None, f"عدد السجلات المحذوفة: {total_deleted}")
+    await update_stats()  # Update stats after deletion
 
     await ctx.send(f"🗑️ تم حذف كل السجلات من كل الأعضاء. عدد السجلات المحذوفة: {total_deleted}")
 
@@ -868,7 +922,7 @@ class WorkDetailsView(discord.ui.View):
     def __init__(self, work_name, chapters_list, user_id, user_name, currency):
         super().__init__(timeout=120)
         self.work_name = work_name
-        self.chapters_list = chapters_list  # list of dicts with chapter, type, total, notes
+        self.chapters_list = chapters_list
         self.user_id = user_id
         self.user_name = user_name
         self.currency = currency
@@ -888,7 +942,6 @@ class WorkDetailsView(discord.ui.View):
                 next_button = discord.ui.Button(label="التالي ▶", style=discord.ButtonStyle.primary, custom_id="next")
                 next_button.callback = self.next_page
                 self.add_item(next_button)
-        # Add close button
         close_button = discord.ui.Button(label="❌ إغلاق", style=discord.ButtonStyle.danger, custom_id="close")
         close_button.callback = self.close_view
         self.add_item(close_button)
@@ -925,6 +978,149 @@ class WorkDetailsView(discord.ui.View):
             embed.set_footer(text=f"صفحة {self.current_page+1} من {self.total_pages}")
         return embed
 
+# ---------- Projects command with nested buttons ----------
+class MemberSelect(discord.ui.Select):
+    def __init__(self, work_name, members_info, guild):
+        self.work_name = work_name
+        self.members_info = members_info  # list of (user_id, user_name)
+        self.guild = guild
+        options = []
+        for uid, name in members_info[:25]:
+            options.append(discord.SelectOption(label=name, value=str(uid), description=f"عرض فصول {name} في هذا العمل"))
+        options.append(discord.SelectOption(label="❌ إلغاء", value="cancel"))
+        super().__init__(placeholder="اختر عضواً لرؤية تفاصيل فصوله...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "cancel":
+            await interaction.response.edit_message(content="تم الإلغاء.", view=None)
+            return
+        user_id = int(self.values[0])
+        user = self.guild.get_member(user_id)
+        if not user:
+            user_name = next((name for uid, name in self.members_info if uid == user_id), str(user_id))
+        else:
+            user_name = user.display_name
+        records = await load_records()
+        user_entries = records.get(str(user_id), [])
+        work_entries = [e for e in user_entries if e.get("work_name") == self.work_name]
+        if not work_entries:
+            await interaction.response.send_message(f"❌ لا توجد فصول للعضو {user_name} في عمل {self.work_name}.", ephemeral=True)
+            return
+        chapters_details = []
+        for e in work_entries:
+            chapters_details.append({
+                "chapter": e.get("chapter"),
+                "type": e.get("work_type"),
+                "total": e.get("total", 0),
+                "notes": e.get("notes", "")
+            })
+        view_details = WorkDetailsView(self.work_name, chapters_details, user_id, user_name, SETTINGS.get('currency', '$'))
+        await interaction.response.edit_message(content=None, embed=view_details.get_embed(), view=view_details)
+
+class WorkSelect(discord.ui.Select):
+    def __init__(self, works_info, guild):
+        self.works_info = works_info  # list of (work_name, members_list)
+        self.guild = guild
+        options = []
+        for work_name, _ in works_info[:25]:
+            options.append(discord.SelectOption(label=work_name, value=work_name, description="اختر هذا العمل لعرض المساهمين"))
+        options.append(discord.SelectOption(label="❌ إلغاء", value="cancel"))
+        super().__init__(placeholder="اختر العمل لعرض المساهمين...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "cancel":
+            await interaction.response.edit_message(content="تم الإلغاء.", view=None)
+            return
+        work_name = self.values[0]
+        members_info = [(uid, name) for work, members in self.works_info if work == work_name for uid, name in members]
+        if not members_info:
+            await interaction.response.send_message(f"❌ لا يوجد مساهمين في عمل {work_name}.", ephemeral=True)
+            return
+        # Prepare selection for members
+        select = MemberSelect(work_name, members_info, self.guild)
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.response.edit_message(content=f"**اختر عضواً من عمل `{work_name}`:**", view=view)
+
+@bot.tree.command(name="مشاريع", description="عرض جميع المشاريع (الأعمال) والمساهمين وتفاصيل الفصول")
+async def projects_report(interaction: discord.Interaction):
+    if interaction.channel.name not in SETTINGS.get("allowed_channels", []):
+        channels_str = ", ".join([f"#{ch}" for ch in SETTINGS.get("allowed_channels", [])])
+        await interaction.response.send_message(f"❌ استخدم هذا الأمر فقط في أحد الرومات: {channels_str}.", ephemeral=True)
+        return
+
+    records = await load_records()
+    # Build work -> contributors mapping
+    work_contributors = defaultdict(lambda: defaultdict(int))  # work -> user_id -> count of chapters
+    for user_id_str, entries in records.items():
+        for entry in entries:
+            work = entry.get("work_name")
+            if not work:
+                continue
+            work_contributors[work][user_id_str] += 1
+    
+    if not work_contributors:
+        await interaction.response.send_message("📭 لا توجد أعمال مسجلة حتى الآن.", ephemeral=True)
+        return
+    
+    # Prepare list of works with member info
+    works_info = []
+    guild = interaction.guild
+    for work, contributors in work_contributors.items():
+        members_list = []
+        for uid_str, count in contributors.items():
+            uid = int(uid_str)
+            member = guild.get_member(uid)
+            name = member.display_name if member else uid_str
+            members_list.append((uid, name))
+        works_info.append((work, members_list))
+    
+    # Show initial embed with all works and contributor count
+    embed = discord.Embed(title="📚 **قائمة المشاريع (الأعمال)**", color=discord.Color.purple())
+    for work, members in works_info[:20]:
+        embed.add_field(name=f"**▸ {work}**", value=f"عدد المساهمين: {len(members)}", inline=False)
+    embed.set_footer(text="اختر عملاً من القائمة المنسدلة لرؤية المساهمين ثم تفاصيل كل عضو.")
+    view = discord.ui.View(timeout=120)
+    select = WorkSelect(works_info, guild)
+    view.add_item(select)
+    await interaction.response.send_message(embed=embed, view=view)
+
+# ---------- Enhanced Stats Command ----------
+@bot.tree.command(name="احصائيات", description="عرض إحصائيات متقدمة وشاملة")
+async def stats(interaction: discord.Interaction):
+    stat_doc = await stats_collection.find_one({"_id": "stats"})
+    if not stat_doc:
+        await interaction.response.send_message("لا توجد إحصائيات بعد.", ephemeral=True)
+        return
+    
+    total_entries = stat_doc.get("total_entries", 0)
+    total_amount = stat_doc.get("total_amount", 0)
+    type_counts = stat_doc.get("type_counts", {})
+    daily = stat_doc.get("daily", {"entries":0, "amount":0})
+    weekly = stat_doc.get("weekly", {"entries":0, "amount":0})
+    monthly = stat_doc.get("monthly", {"entries":0, "amount":0})
+    top_members = stat_doc.get("top_members", [])
+    last_updated = stat_doc.get("last_updated", "غير معروف")
+    
+    embed = discord.Embed(title="📊 **إحصائيات شاملة للبوت**", color=discord.Color.teal())
+    embed.add_field(name="**📄 إجمالي السجلات**", value=total_entries, inline=True)
+    embed.add_field(name="**💰 إجمالي المبالغ**", value=f"{SETTINGS.get('currency', '$')}{total_amount:.2f}", inline=True)
+    embed.add_field(name="**📖 تحرير**", value=type_counts.get("تحرير", 0), inline=True)
+    embed.add_field(name="**🌐 ترجمة**", value=type_counts.get("ترجمة", 0), inline=True)
+    embed.add_field(name="**✨ تبييض**", value=type_counts.get("تبييض", 0), inline=True)
+    embed.add_field(name="**📅 اليوم**", value=f"سجلات: {daily['entries']}\nالمبلغ: {SETTINGS.get('currency', '$')}{daily['amount']:.2f}", inline=True)
+    embed.add_field(name="**📆 هذا الأسبوع**", value=f"سجلات: {weekly['entries']}\nالمبلغ: {SETTINGS.get('currency', '$')}{weekly['amount']:.2f}", inline=True)
+    embed.add_field(name="**📆 هذا الشهر**", value=f"سجلات: {monthly['entries']}\nالمبلغ: {SETTINGS.get('currency', '$')}{monthly['amount']:.2f}", inline=True)
+    if top_members:
+        top_list = ""
+        for i, (uid, stats) in enumerate(top_members[:5], 1):
+            member = interaction.guild.get_member(int(uid))
+            name = member.display_name if member else uid
+            top_list += f"{i}. **{name}** - {stats['total_amount']:.2f} {SETTINGS.get('currency', '$')} ({stats['total_entries']} فصل)\n"
+        embed.add_field(name="**🏆 أفضل 5 أعضاء**", value=top_list, inline=False)
+    embed.set_footer(text=f"آخر تحديث: {last_updated[:19] if last_updated != 'غير معروف' else last_updated}")
+    await interaction.response.send_message(embed=embed)
+
 # ---------- Slash and Text command: أعمالي (grouped by work name) ----------
 @bot.tree.command(name="أعمالي", description="عرض أعمالك الخاصة مجمعة حسب اسم العمل")
 async def my_works_slash(interaction: discord.Interaction):
@@ -938,7 +1134,6 @@ async def my_works_slash(interaction: discord.Interaction):
         await interaction.response.send_message("📭 ليس لديك أي شغل مسجل حتى الآن.", ephemeral=True)
         return
     
-    # Group entries by work_name
     works = {}
     for entry in records[user_id]:
         work = entry.get("work_name", "غير محدد")
@@ -964,7 +1159,6 @@ async def my_works_slash(interaction: discord.Interaction):
             inline=False
         )
     embed.add_field(name="**💵 الإجمالي العام**", value=f"{SETTINGS.get('currency', '$')}{total_all:.2f}", inline=False)
-    # Add buttons to view details of each work (if too many, limit to 5 buttons)
     view = discord.ui.View(timeout=60)
     for work, entries in list(works.items())[:5]:
         chapters_details = []
@@ -981,7 +1175,6 @@ async def my_works_slash(interaction: discord.Interaction):
             await interaction.response.send_message(embed=view_details.get_embed(), view=view_details, ephemeral=True)
         button.callback = button_callback
         view.add_item(button)
-    
     await interaction.response.send_message(embed=embed, view=view)
 
 @bot.command(name="أعمالي")
@@ -1020,7 +1213,7 @@ async def my_works_text(ctx):
     await ctx.send(embed=embed)
     await ctx.send("🔍 لرؤية تفاصيل كل عمل، استخدم الأمر `/أعمالي` (سحابي) حيث يمكنك الضغط على الأزرار.")
 
-# ---------- Slash command: شغل (grouped by work name) - for any member ----------
+# ---------- Slash command: شغل (grouped) for any member ----------
 @bot.tree.command(name="شغل", description="عرض شغل عضو مجمّع حسب اسم العمل")
 async def show_work_slash(interaction: discord.Interaction, member: discord.Member = None):
     if interaction.channel.name not in SETTINGS.get("allowed_channels", []):
@@ -1036,7 +1229,6 @@ async def show_work_slash(interaction: discord.Interaction, member: discord.Memb
         await interaction.response.send_message(f"📭 لا يوجد شغل محفوظ للعضو {target.display_name}.", ephemeral=True)
         return
 
-    # Group by work_name
     works = {}
     for entry in records[user_id]:
         work = entry.get("work_name", "غير محدد")
@@ -1063,7 +1255,6 @@ async def show_work_slash(interaction: discord.Interaction, member: discord.Memb
         )
     embed.add_field(name="**💵 الإجمالي العام**", value=f"{SETTINGS.get('currency', '$')}{total_all:.2f}", inline=False)
     
-    # Add detail buttons for each work
     view = discord.ui.View(timeout=60)
     for work, entries in list(works.items())[:5]:
         chapters_details = []
@@ -1083,7 +1274,6 @@ async def show_work_slash(interaction: discord.Interaction, member: discord.Memb
     
     await interaction.response.send_message(embed=embed, view=view)
 
-# ---------- Text version of شغل (grouped) ----------
 @bot.command(name="شغل")
 async def show_work_text(ctx, member: discord.Member = None):
     member = member or ctx.author
@@ -1122,7 +1312,7 @@ async def show_work_text(ctx, member: discord.Member = None):
     await ctx.send(embed=embed)
     await ctx.send("🔍 لرؤية تفاصيل كل عمل، استخدم الأمر `/شغل` (سحابي) حيث يمكنك الضغط على الأزرار.")
 
-# ---------- Other admin commands (dashboard, stats, audit, weekly, edit, export, settings, projects) with formatted embeddings ----------
+# ---------- Other admin commands (dashboard, audit, weekly, edit, export, settings) ----------
 @bot.tree.command(name="لوحة_التحكم", description="لوحة تحكم للمشرفين")
 async def dashboard(interaction: discord.Interaction):
     if not is_admin(interaction):
@@ -1142,21 +1332,6 @@ async def dashboard(interaction: discord.Interaction):
     embed.add_field(name="**🔔 قناة الإشعارات**", value=f"<#{SETTINGS.get('notify_channel_id')}>" if SETTINGS.get('notify_channel_id') else "غير محدد", inline=True)
     embed.add_field(name="**💾 قناة النسخ الاحتياطي**", value=f"<#{SETTINGS.get('daily_backup_channel_id')}>" if SETTINGS.get('daily_backup_channel_id') else "غير محدد", inline=True)
     embed.add_field(name="**⚠️ حد التنبيه**", value=f"{SETTINGS.get('currency', '$')}{SETTINGS.get('alert_threshold', 10):.2f}", inline=True)
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="احصائيات", description="عرض إحصائيات متقدمة")
-async def stats(interaction: discord.Interaction):
-    stat_doc = await stats_collection.find_one({"_id": "stats"})
-    if not stat_doc:
-        await interaction.response.send_message("لا توجد إحصائيات بعد.", ephemeral=True)
-        return
-    embed = discord.Embed(title="📊 **إحصائيات البوت**", color=discord.Color.teal())
-    embed.add_field(name="**إجمالي السجلات**", value=stat_doc.get("total_entries", 0), inline=True)
-    embed.add_field(name="**إجمالي المبالغ**", value=f"{SETTINGS.get('currency', '$')}{stat_doc.get('total_amount', 0):.2f}", inline=True)
-    types = stat_doc.get("type_counts", {})
-    embed.add_field(name="**📖 تحرير**", value=types.get("تحرير", 0), inline=True)
-    embed.add_field(name="**🌐 ترجمة**", value=types.get("ترجمة", 0), inline=True)
-    embed.add_field(name="**✨ تبييض**", value=types.get("تبييض", 0), inline=True)
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="سجل", description="عرض آخر 20 عملية إدارية (للمشرفين)")
@@ -1216,6 +1391,7 @@ async def edit_last(interaction: discord.Interaction, العمل: str = None, ا
     if ملاحظات is not None:
         last["notes"] = ملاحظات
     await save_records(records)
+    await update_stats()
     await interaction.response.send_message("✅ تم تعديل آخر سجل بنجاح.", ephemeral=True)
 
 @bot.tree.command(name="تصدير", description="تصدير كل البيانات إلى ملف Excel (للمشرفين)")
@@ -1261,26 +1437,5 @@ async def bot_settings(interaction: discord.Interaction, العملة: str = Non
         SETTINGS["alert_threshold"] = حد_التنبيه
     await save_settings(SETTINGS)
     await interaction.response.send_message("✅ تم تحديث الإعدادات.", ephemeral=True)
-
-@bot.tree.command(name="مشاريع", description="عرض تقارير الاعمال")
-async def projects_report(interaction: discord.Interaction):
-    records = await load_records()
-    projects = {}
-    for user_id, entries in records.items():
-        for entry in entries:
-            work = entry.get("work_name")
-            if not work:
-                continue
-            if work not in projects:
-                projects[work] = {"total_pages": 0, "contributors": set()}
-            projects[work]["total_pages"] += 1
-            projects[work]["contributors"].add(user_id)
-    if not projects:
-        await interaction.response.send_message("لا توجد مشاريع مسجلة.")
-        return
-    embed = discord.Embed(title="📚 **تقرير المشاريع**", color=discord.Color.purple())
-    for work, data in list(projects.items())[:10]:
-        embed.add_field(name=f"**▸ {work}**", value=f"**الفصول:** {data['total_pages']}\n**المساهمين:** {len(data['contributors'])}", inline=False)
-    await interaction.response.send_message(embed=embed)
 
 bot.run(TOKEN)
