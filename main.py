@@ -430,9 +430,9 @@ async def help_commands(ctx):
 
 # ---------- Slash command: تسجيل (unified: single chapter or range, optional per-chapter types) ----------
 class RegisterModal(discord.ui.Modal, title="تسجيل شغل جديد"):
-    work_name = discord.ui.TextInput(label="اسم العمل (المانهوا)", placeholder="مثال: Solo Leveling", required=True)
-    chapters = discord.ui.TextInput(label="الفصول (رقم واحد أو نطاق مثل 1-5 أو 1,2,3)", placeholder="مثال: 5  أو  1-5  أو  1,3,5", required=True)
-    types = discord.ui.TextInput(label="الأنواع (اكتب نوعاً واحداً للكل أو أنواع مفصولة بفواصل بنفس ترتيب الفصول)", placeholder="مثال: ترجمة  أو  ترجمة,تحرير,تبييض", required=True)
+    work_name = discord.ui.TextInput(label="اسم العمل", placeholder="مثال: Solo Leveling", required=True)
+    chapters = discord.ui.TextInput(label="الفصول", placeholder="مثال: 5  أو  1-5  أو  1,3,5", required=True)
+    types = discord.ui.TextInput(label="الأنواع", placeholder="نوع واحد مثل: ترجمة  أو  أنواع لكل فصل مثل: ترجمة,تحرير,تبييض", required=True)
     notes = discord.ui.TextInput(label="ملاحظات (اختياري)", placeholder="أي تفاصيل إضافية", required=False)
 
     async def on_submit(self, interaction: discord.Interaction):
