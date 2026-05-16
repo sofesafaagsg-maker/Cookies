@@ -2204,4 +2204,4 @@ async def add_bonus(interaction: discord.Interaction, عضو: discord.Member, ا
 
 @bot.tree.command(name="خصم", description="خصم مبلغ (سالب) من عضو - للإدارة فقط")
 @app_commands.describe(عضو="العضو المراد الخصم منه", المبلغ="المبلغ الموجب (سيتم خصمه)", السبب="سبب الخصم (اختياري)")
-@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user
+@app_commands.checks.cooldown(1, 5, key=lambda i: i.user.id)
