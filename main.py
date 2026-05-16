@@ -722,6 +722,7 @@ async def help_slash(interaction: discord.Interaction):
     embed.add_field(name="**▸ نظام الدفع الشهري (للمشرفين)**",
                     value="`/تحديد_موعد_الدفع` `/تقرير_دفع`", inline=False)
     embed.add_field(name="**▸ الملخص الشهري (للأعضاء)**", value="`/ملخص_شهري`", inline=False)
+    embed.add_field(name="**▸ تحديث أسعار الفصول المسجلة (للمشرفين)**", value="`/تحديث_أسعار`", inline=False)
     embed.set_footer(text=f"القنوات المسموحة: {', '.join([f'#{ch}' for ch in SETTINGS.get('allowed_channels', [])])}")
     await interaction.response.send_message(embed=embed)
 
@@ -758,6 +759,7 @@ async def help_commands(ctx):
     embed.add_field(name="**▸ نظام الدفع الشهري (للمشرفين)**",
                     value="`/تحديد_موعد_الدفع` `/تقرير_دفع`", inline=False)
     embed.add_field(name="**▸ الملخص الشهري (للأعضاء)**", value="`/ملخص_شهري`", inline=False)
+    embed.add_field(name="**▸ تحديث أسعار الفصول المسجلة (للمشرفين)**", value="`/تحديث_أسعار`", inline=False)
     embed.set_footer(text=f"القنوات المسموحة: {', '.join([f'#{ch}' for ch in SETTINGS.get('allowed_channels', [])])}")
     await ctx.send(embed=embed)
 
@@ -818,6 +820,8 @@ async def edit_price_slash(interaction: discord.Interaction, التخصص: str, 
     rebuild_prices()
     await log_audit("تعديل_سعر", interaction.user.id, None, f"تغيير سعر {norm_type} إلى {السعر}")
     await interaction.response.send_message(f"✅ تم تحديث سعر `{norm_type}` إلى {SETTINGS.get('currency', '$')}{السعر:.2f}", ephemeral=True)
+    # Send a follow-up warning
+    await interaction.channel.send("⚠️ تذكير: لا تنس استخدام الأمر `/تحديث_أسعار` لتطبيق السعر الجديد على الفصول المسجلة هذا الشهر.")
 
 # ----------------------------------------------------------------------
 # Slash command: تسجيل (without modal, using autocomplete)
@@ -2681,6 +2685,72 @@ async def monthly_summary(interaction: discord.Interaction):
     embed.add_field(name="المبلغ المستحق", value=f"{SETTINGS.get('currency', '$')}{total:.2f}", inline=True)
     embed.add_field(name="تفصيل الأعمال", value=details_str, inline=False)
     await interaction.response.send_message(embed=embed)
+
+# ----------------------------------------------------------------------
+# NEW: /تحديث_أسعار command
+# ----------------------------------------------------------------------
+@bot.tree.command(name="تحديث_أسعار", description="تحديث مبالغ الفصول المسجلة بناءً على الأسعار الحالية (للمشرفين)")
+@app_commands.autocomplete(التخصص=specialty_autocomplete)
+@app_commands.describe(
+    التخصص="تخصص محدد (اختياري، وإلا كل التخصصات)",
+    من_تاريخ="بداية النطاق (YYYY-MM-DD، اختياري)",
+    الى_تاريخ="نهاية النطاق (YYYY-MM-DD، اختياري)",
+    كل_السجلات="تحديث كل السجلات بغض النظر عن التاريخ"
+)
+@app_commands.checks.cooldown(1, 10, key=lambda i: (i.user.id, i.command.qualified_name))
+async def update_prices(interaction: discord.Interaction, التخصص: str = None, من_تاريخ: str = None, الى_تاريخ: str = None, كل_السجلات: bool = False):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "تحديث_أسعار")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    records = await load_records()
+    specialties = SETTINGS.get("specialties", {})
+    updated_count = 0
+    # Determine specialty filter
+    target_specialty = map_type(التخصص) if التخصص else None
+    if target_specialty and target_specialty not in specialties:
+        await interaction.followup.send(f"❌ التخصص `{التخصص}` غير موجود.", ephemeral=True)
+        return
+    # Determine date range
+    if كل_السجلات:
+        date_from = None
+        date_to = None
+    elif من_تاريخ or الى_تاريخ:
+        try:
+            date_from = datetime.fromisoformat(من_تاريخ) if من_تاريخ else datetime.min
+            date_to = datetime.fromisoformat(الى_تاريخ) if الى_تاريخ else datetime.max
+        except:
+            await interaction.followup.send("❌ صيغة التاريخ غير صحيحة. استخدم YYYY-MM-DD.", ephemeral=True)
+            return
+    else:
+        # Default: current month
+        date_from = datetime.utcnow().replace(day=1)
+        date_to = datetime.utcnow()
+    # Iterate records and update
+    for user_id, entries in records.items():
+        for entry in entries:
+            wtype = entry.get("work_type")
+            # Only update work types that are in specialties (ignore bonus/deduction)
+            if wtype not in specialties:
+                continue
+            if target_specialty and wtype != target_specialty:
+                continue
+            if not كل_السجلات:
+                try:
+                    entry_date = datetime.fromisoformat(entry.get("timestamp"))
+                    if entry_date < date_from or entry_date > date_to:
+                        continue
+                except:
+                    continue
+            # Update total to current price of that specialty
+            if specialties[wtype].get("active", True):
+                entry["total"] = specialties[wtype]["price"]
+                updated_count += 1
+    await save_records(records)
+    await update_stats()
+    await log_audit("تحديث_أسعار", interaction.user.id, None, f"تم تحديث {updated_count} سجل - التخصص: {التخصص or 'الكل'}, الفترة: {'كل السجلات' if كل_السجلات else f'{من_تاريخ or "بداية الشهر"} -> {الى_تاريخ or "الآن"}'}")
+    await interaction.followup.send(f"✅ تم تحديث {updated_count} سجل بنجاح.", ephemeral=True)
 
 # ----------------------------------------------------------------------
 # Init & run
