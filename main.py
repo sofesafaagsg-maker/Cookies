@@ -27,13 +27,19 @@ if MONGODB_URI is None:
 # Default allowed channels (will be loaded from DB)
 DEFAULT_ALLOWED_CHANNELS = ["تسجيــــــــل-اعمال〢💵"]
 
-# Prices in USD (supports currency change later)
-PRICES = {
-    "تحرير": 0.50,
-    "ترجمة_كوري": 0.75,
-    "ترجمة_انجليزي": 0.60,
-    "تبييض": 0.25,
+# Initial specialties definition (will be stored in settings)
+DEFAULT_SPECIALTIES = {
+    "تحرير": {"price": 0.50, "active": True, "last_modified": datetime.utcnow().isoformat()},
+    "ترجمة_كوري": {"price": 0.75, "active": True, "last_modified": datetime.utcnow().isoformat()},
+    "ترجمة_انجليزي": {"price": 0.60, "active": True, "last_modified": datetime.utcnow().isoformat()},
+    "تبييض": {"price": 0.25, "active": True, "last_modified": datetime.utcnow().isoformat()},
+    "سحب": {"price": 0.01, "active": True, "last_modified": datetime.utcnow().isoformat()},
+    "دمج": {"price": 0.01, "active": True, "last_modified": datetime.utcnow().isoformat()},
+    "رفع": {"price": 0.005, "active": True, "last_modified": datetime.utcnow().isoformat()},
 }
+
+# Global PRICES is built from active specialties only
+PRICES = {}
 
 # Currency symbol (can be changed by admin)
 CURRENCY = "$"
@@ -155,13 +161,28 @@ async def load_settings():
     try:
         doc = await settings_collection.find_one({"_id": "settings"})
         if doc:
+            # Ensure specialties exist
+            if "specialties" not in doc:
+                doc["specialties"] = DEFAULT_SPECIALTIES.copy()
+            # Ensure payment settings
+            if "payment_day" not in doc:
+                doc["payment_day"] = None
+                doc["payment_hour"] = 0
+                doc["payment_reminder_24h_sent"] = False
+                doc["payment_day_sent"] = False
             return doc
+        # Default settings
         return {
             "allowed_channels": DEFAULT_ALLOWED_CHANNELS.copy(),
             "currency": "$",
             "notify_channel_id": None,
             "daily_backup_channel_id": None,
-            "alert_threshold": 10.0
+            "alert_threshold": 10.0,
+            "specialties": DEFAULT_SPECIALTIES.copy(),
+            "payment_day": None,
+            "payment_hour": 0,
+            "payment_reminder_24h_sent": False,
+            "payment_day_sent": False
         }
     except Exception as e:
         print(f"[ERROR] load_settings() - {e}")
@@ -170,7 +191,12 @@ async def load_settings():
             "currency": "$",
             "notify_channel_id": None,
             "daily_backup_channel_id": None,
-            "alert_threshold": 10.0
+            "alert_threshold": 10.0,
+            "specialties": DEFAULT_SPECIALTIES.copy(),
+            "payment_day": None,
+            "payment_hour": 0,
+            "payment_reminder_24h_sent": False,
+            "payment_day_sent": False
         }
 
 async def save_settings(settings):
@@ -183,6 +209,12 @@ async def save_settings(settings):
         )
     except Exception as e:
         print(f"[ERROR] save_settings() - {e}")
+
+def rebuild_prices():
+    """Rebuild global PRICES dict from active specialties in SETTINGS."""
+    global PRICES
+    specialties = SETTINGS.get("specialties", DEFAULT_SPECIALTIES)
+    PRICES = {k: v["price"] for k, v in specialties.items() if v.get("active", True)}
 
 async def log_audit(action, moderator_id, target_id, details):
     """Log an admin action."""
@@ -332,6 +364,23 @@ def parse_mixed_types(types_input, chapters_count):
     else:
         return [types_input] * chapters_count
 
+def map_type(t):
+    """Convert user-friendly type (with spaces) to internal key (underscores)."""
+    return t.strip().replace(' ', '_')
+
+def is_duplicate(records, user_id, work_name, chapter, work_type):
+    """Check if the same (work, chapter, type) already exists for this user."""
+    user_entries = records.get(str(user_id), [])
+    for e in user_entries:
+        if (e.get("work_name") == work_name and 
+            e.get("chapter") == chapter and 
+            e.get("work_type") == work_type):
+            return True
+    return False
+
+# ----------------------------------------------------------------------
+# Bot setup
+# ----------------------------------------------------------------------
 intents = discord.Intents.default()
 intents.message_content = True
 
@@ -359,6 +408,7 @@ async def on_ready():
     global SETTINGS
     print(f"[LOG] Logged in as {bot.user}")
     SETTINGS = await load_settings()
+    rebuild_prices()
     print(f"[LOG] Settings loaded: allowed_channels={SETTINGS.get('allowed_channels')}, "
           f"currency={SETTINGS.get('currency')}")
     try:
@@ -371,6 +421,7 @@ async def on_ready():
     await update_stats()
     daily_backup.start()
     update_stats_task.start()
+    payment_reminder_task.start()
 
 @bot.check
 async def only_allowed_channel(ctx):
@@ -405,6 +456,75 @@ async def daily_backup():
 async def update_stats_task():
     await update_stats()
 
+@tasks.loop(minutes=10)
+async def payment_reminder_task():
+    await check_payment_reminder()
+
+async def check_payment_reminder():
+    """Check if it's time to send payment reminders."""
+    payment_day = SETTINGS.get("payment_day")
+    if not payment_day:
+        return
+    now = datetime.utcnow()
+    payment_hour = SETTINGS.get("payment_hour", 0)
+    # Check if today is the payment day
+    today = now.date()
+    payment_date = today.replace(day=min(payment_day, 28))  # avoid month issues
+    if payment_day > 28:
+        payment_date = today.replace(day=28)  # safe fallback
+
+    # 24 hours before reminder
+    reminder_date = payment_date - timedelta(days=1)
+    if now.date() == reminder_date and now.hour >= payment_hour and not SETTINGS.get("payment_reminder_24h_sent"):
+        await send_payment_reminder(24)
+        SETTINGS["payment_reminder_24h_sent"] = True
+        await save_settings(SETTINGS)
+    # Payment day reminder
+    elif now.date() == payment_date and now.hour >= payment_hour and not SETTINGS.get("payment_day_sent"):
+        await send_payment_reminder(0)
+        SETTINGS["payment_day_sent"] = True
+        await save_settings(SETTINGS)
+    # Reset flags when day passes
+    elif now.date() > payment_date:
+        SETTINGS["payment_reminder_24h_sent"] = False
+        SETTINGS["payment_day_sent"] = False
+        await save_settings(SETTINGS)
+
+async def send_payment_reminder(hours_before):
+    """Send a payment reminder message."""
+    notify_channel_id = SETTINGS.get("notify_channel_id") or SETTINGS.get("daily_backup_channel_id")
+    if not notify_channel_id:
+        return
+    channel = bot.get_channel(notify_channel_id)
+    if not channel:
+        return
+    # Gather monthly totals
+    records = await load_records()
+    month_start = datetime.utcnow().replace(day=1)
+    totals = {}
+    for user_id, entries in records.items():
+        user_total = 0
+        for e in entries:
+            try:
+                entry_date = datetime.fromisoformat(e["timestamp"])
+                if entry_date >= month_start:
+                    user_total += e.get("total", 0)
+            except:
+                pass
+        if user_total != 0:
+            totals[user_id] = user_total
+    total_all = sum(totals.values())
+    embed = discord.Embed(title="🔔 تذكير بموعد الدفع", color=discord.Color.orange())
+    if hours_before == 24:
+        embed.description = "⏰ تبقى 24 ساعة على موعد الدفع الشهري"
+    else:
+        embed.description = "📅 اليوم هو موعد الدفع الشهري"
+    embed.add_field(name="إجمالي المبلغ المستحق", value=f"{SETTINGS.get('currency', '$')}{total_all:.2f}", inline=False)
+    top5 = sorted(totals.items(), key=lambda x: x[1], reverse=True)[:5]
+    top_str = "\n".join([f"<@{uid}>: {SETTINGS.get('currency', '$')}{amt:.2f}" for uid, amt in top5])
+    embed.add_field(name="أعلى 5 مستحقات", value=top_str, inline=False)
+    await channel.send(embed=embed)
+
 # ----------------------------------------------------------------------
 # Autocomplete helper (must be defined before any command that uses it)
 # ----------------------------------------------------------------------
@@ -414,6 +534,15 @@ async def work_autocomplete(interaction: discord.Interaction, current: str) -> L
     for w in works:
         if current.lower() in w["name"].lower():
             choices.append(app_commands.Choice(name=w["name"][:100], value=w["name"]))
+    return choices[:25]
+
+async def specialty_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+    """Autocomplete for specialty names (showing active ones)."""
+    choices = []
+    for name in PRICES.keys():
+        display_name = name.replace('_', ' ').title()
+        if current.lower() in display_name.lower():
+            choices.append(app_commands.Choice(name=display_name[:100], value=name))
     return choices[:25]
 
 # ----------------------------------------------------------------------
@@ -564,7 +693,7 @@ async def upload_records(interaction: discord.Interaction, file: discord.Attachm
 async def help_slash(interaction: discord.Interaction):
     embed = discord.Embed(title="📌 **أوامر البوت**", color=discord.Color.purple())
     embed.add_field(name="**▸ تسجيل شغل جديد**",
-                    value="`!تحليل` أو `/تسجيل`\n*يدعم فصلاً واحداً أو عدة فصول، وأنماط أنواع مثل `ترجمة كوري-تحرير`*",
+                    value="`!تحليل` أو `/تسجيل`\n*يدعم فصلاً واحداً أو عدة فصول، وأنماط تخصصات مثل `ترجمة كوري-تحرير`*",
                     inline=False)
     embed.add_field(name="**▸ عرض أعمالي**", value="`!أعمالي` أو `/أعمالي`", inline=False)
     embed.add_field(name="**▸ عرض شغل عضو**", value="`!شغل @member` أو `/شغل`", inline=False)
@@ -587,7 +716,12 @@ async def help_slash(interaction: discord.Interaction):
     embed.add_field(name="**▸ إدارة الأعمال (للمشرفين)**",
                     value="`/اضافة_عمل` `/حذف_عمل` `/تعديل_عمل` `/عرض_الاعمال`", inline=False)
     embed.add_field(name="**▸ مكافأة وخصم (للمشرفين)**",
-                    value="`/مكافأة` و `/خصم`", inline=False)
+                    value="`/مكافأة` `/خصم` `/حذف_مكافأة_خصم`", inline=False)
+    embed.add_field(name="**▸ إدارة التخصصات (للمشرفين)**",
+                    value="`/اضافة_تخصص` `/حذف_تخصص` `/تفعيل_تخصص` `/تعطيل_تخصص`", inline=False)
+    embed.add_field(name="**▸ نظام الدفع الشهري (للمشرفين)**",
+                    value="`/تحديد_موعد_الدفع` `/تقرير_دفع`", inline=False)
+    embed.add_field(name="**▸ الملخص الشهري (للأعضاء)**", value="`/ملخص_شهري`", inline=False)
     embed.set_footer(text=f"القنوات المسموحة: {', '.join([f'#{ch}' for ch in SETTINGS.get('allowed_channels', [])])}")
     await interaction.response.send_message(embed=embed)
 
@@ -596,7 +730,7 @@ async def help_slash(interaction: discord.Interaction):
 async def help_commands(ctx):
     embed = discord.Embed(title="📌 **أوامر البوت**", color=discord.Color.purple())
     embed.add_field(name="**▸ تسجيل شغل جديد**",
-                    value="`!تحليل` أو `/تسجيل`\n*يدعم فصلاً واحداً أو عدة فصول، وأنماط أنواع مثل `ترجمة كوري-تحرير`*",
+                    value="`!تحليل` أو `/تسجيل`\n*يدعم فصلاً واحداً أو عدة فصول، وأنماط تخصصات مثل `ترجمة كوري-تحرير`*",
                     inline=False)
     embed.add_field(name="**▸ عرض أعمالي**", value="`!أعمالي` أو `/أعمالي`", inline=False)
     embed.add_field(name="**▸ عرض شغل عضو**", value="`!شغل @member` أو `/شغل`", inline=False)
@@ -618,20 +752,33 @@ async def help_commands(ctx):
     embed.add_field(name="**▸ إدارة الأعمال (للمشرفين)**",
                     value="`/اضافة_عمل` `/حذف_عمل` `/تعديل_عمل` `/عرض_الاعمال`", inline=False)
     embed.add_field(name="**▸ مكافأة وخصم (للمشرفين)**",
-                    value="`/مكافأة` و `/خصم`", inline=False)
+                    value="`/مكافأة` `/خصم` `/حذف_مكافأة_خصم`", inline=False)
+    embed.add_field(name="**▸ إدارة التخصصات (للمشرفين)**",
+                    value="`/اضافة_تخصص` `/حذف_تخصص` `/تفعيل_تخصص` `/تعطيل_تخصص`", inline=False)
+    embed.add_field(name="**▸ نظام الدفع الشهري (للمشرفين)**",
+                    value="`/تحديد_موعد_الدفع` `/تقرير_دفع`", inline=False)
+    embed.add_field(name="**▸ الملخص الشهري (للأعضاء)**", value="`/ملخص_شهري`", inline=False)
     embed.set_footer(text=f"القنوات المسموحة: {', '.join([f'#{ch}' for ch in SETTINGS.get('allowed_channels', [])])}")
     await ctx.send(embed=embed)
 
 # ----------------------------------------------------------------------
 # Command: اسعار
 # ----------------------------------------------------------------------
-@bot.tree.command(name="اسعار", description="عرض أسعار أنواع العمل الحالية")
+@bot.tree.command(name="اسعار", description="عرض أسعار التخصصات الحالية")
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
 async def prices_slash(interaction: discord.Interaction):
     embed = discord.Embed(title="💰 **قائمة الأسعار**", color=discord.Color.gold())
     for t, price in PRICES.items():
         display_name = t.replace('_', ' ').title()
-        embed.add_field(name=f"**{display_name}**", value=f"{SETTINGS.get('currency', '$')}{price:.2f}", inline=True)
+        if t == "رفع":
+            # Special formatting: 1 cent per 2 chapters
+            embed.add_field(name=f"**{display_name}**",
+                            value=f"{SETTINGS.get('currency', '$')}{price:.3f} (1 سنت لكل فصلين)",
+                            inline=True)
+        else:
+            embed.add_field(name=f"**{display_name}**",
+                            value=f"{SETTINGS.get('currency', '$')}{price:.2f}",
+                            inline=True)
     await interaction.response.send_message(embed=embed)
 
 @bot.command(name="اسعار")
@@ -640,49 +787,51 @@ async def prices_text(ctx):
     embed = discord.Embed(title="💰 **قائمة الأسعار**", color=discord.Color.gold())
     for t, price in PRICES.items():
         display_name = t.replace('_', ' ').title()
-        embed.add_field(name=f"**{display_name}**", value=f"{SETTINGS.get('currency', '$')}{price:.2f}", inline=True)
+        if t == "رفع":
+            embed.add_field(name=f"**{display_name}**",
+                            value=f"{SETTINGS.get('currency', '$')}{price:.3f} (1 سنت لكل فصلين)",
+                            inline=True)
+        else:
+            embed.add_field(name=f"**{display_name}**",
+                            value=f"{SETTINGS.get('currency', '$')}{price:.2f}",
+                            inline=True)
     await ctx.send(embed=embed)
 
 # ----------------------------------------------------------------------
 # Command: تعديل_سعر
 # ----------------------------------------------------------------------
-@bot.tree.command(name="تعديل_سعر", description="تعديل سعر نوع عمل (للمشرفين)")
+@bot.tree.command(name="تعديل_سعر", description="تعديل سعر تخصص (للمشرفين)")
+@app_commands.autocomplete(التخصص=specialty_autocomplete)
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
-async def edit_price_slash(interaction: discord.Interaction, النوع: str, السعر: float):
+async def edit_price_slash(interaction: discord.Interaction, التخصص: str, السعر: float):
     if not is_admin(interaction):
         await log_unauthorized(interaction.user.id, "تعديل_سعر")
         await interaction.response.send_message("❌ ما عندك صلاحية تستخدم هذا الأمر.", ephemeral=True)
         return
-    # Normalize: replace spaces with underscores to match keys
-    norm_type = النوع.strip().replace(' ', '_')
-    matched = None
-    for key in PRICES.keys():
-        if key.replace('_', ' ').lower() == norm_type.replace('_', ' ').lower() or key.lower() == norm_type.lower():
-            matched = key
-            break
-    if matched is None:
-        await interaction.response.send_message(f"❌ النوع `{النوع}` غير موجود. الأنواع المتاحة: {', '.join(PRICES.keys())}", ephemeral=True)
+    norm_type = map_type(التخصص)
+    if norm_type not in SETTINGS.get("specialties", {}):
+        await interaction.response.send_message(f"❌ التخصص `{التخصص}` غير موجود. التخصصات المتاحة: {', '.join(SETTINGS['specialties'].keys())}", ephemeral=True)
         return
-    PRICES[matched] = السعر
-    settings = await load_settings()
-    settings["prices"] = PRICES
-    await save_settings(settings)
-    await log_audit("تعديل_سعر", interaction.user.id, None, f"تغيير سعر {matched} إلى {السعر}")
-    await interaction.response.send_message(f"✅ تم تحديث سعر `{matched}` إلى {SETTINGS.get('currency', '$')}{السعر:.2f}", ephemeral=True)
+    SETTINGS["specialties"][norm_type]["price"] = السعر
+    SETTINGS["specialties"][norm_type]["last_modified"] = datetime.utcnow().isoformat()
+    await save_settings(SETTINGS)
+    rebuild_prices()
+    await log_audit("تعديل_سعر", interaction.user.id, None, f"تغيير سعر {norm_type} إلى {السعر}")
+    await interaction.response.send_message(f"✅ تم تحديث سعر `{norm_type}` إلى {SETTINGS.get('currency', '$')}{السعر:.2f}", ephemeral=True)
 
 # ----------------------------------------------------------------------
-# Slash command: تسجيل (now without modal, using autocomplete)
+# Slash command: تسجيل (without modal, using autocomplete)
 # ----------------------------------------------------------------------
 @bot.tree.command(name="تسجيل", description="تسجيل شغل جديد (يدعم الفلترة حسب الأعمال المدفوعة)")
 @app_commands.autocomplete(العمل=work_autocomplete)
 @app_commands.describe(
     العمل="اسم العمل (اختر من القائمة)",
     الفصول="نطاق الفصول مثل 1-5 أو 1,3,5",
-    الانواع="الأنواع مثل ترجمة كوري-تحرير-تبييض (بدون شرطة سفلية)",
+    التخصصات="التخصصات مثل ترجمة كوري-تحرير-تبييض (بدون شرطة سفلية)",
     ملاحظات="ملاحظات اختيارية"
 )
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
-async def register_slash(interaction: discord.Interaction, العمل: str, الفصول: str, الانواع: str, ملاحظات: str = None):
+async def register_slash(interaction: discord.Interaction, العمل: str, الفصول: str, التخصصات: str, ملاحظات: str = None):
     if interaction.channel.name not in SETTINGS.get("allowed_channels", []):
         channels_str = ", ".join([f"#{ch}" for ch in SETTINGS.get("allowed_channels", [])])
         await interaction.response.send_message(f"❌ استخدم هذا الأمر فقط في أحد الرومات: {channels_str}.", ephemeral=True)
@@ -707,28 +856,25 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
         await interaction.response.send_message("⚠️ جميع الفصول المدخلة مجانية ولم تُسجّل.", ephemeral=True)
         return
 
-    # تحليل الأنواع مع إمكانية استخدام المسافات بدلاً من الشَرطات السفلية
-    original_types = parse_mixed_types(الانواع, len(chapters_list))
+    # تحليل التخصصات مع إمكانية استخدام المسافات بدلاً من الشَرطات السفلية
+    original_types = parse_mixed_types(التخصصات, len(chapters_list))
     if original_types is None:
-        await interaction.response.send_message(f"❌ عدد الأنواع لا يتطابق مع عدد الفصول ({len(chapters_list)}).", ephemeral=True)
+        await interaction.response.send_message(f"❌ عدد التخصصات لا يتطابق مع عدد الفصول ({len(chapters_list)}).", ephemeral=True)
         return
 
-    # تحويل المسافات إلى شرطات سفلية لتطابق القاموس
-    def map_type(t):
-        return t.strip().replace(' ', '_')
     mapped_types = [map_type(t) for t in original_types]
 
-    # فلترة الأنواع للفصول المدفوعة
+    # فلترة التخصصات للفصول المدفوعة
     filtered_types = []
     kept_set = set(paid_chapters)
     for idx, ch in enumerate(chapters_list):
         if ch in kept_set:
             filtered_types.append(mapped_types[idx])
 
-    # التحقق من صحة الأنواع
+    # التحقق من صحة التخصصات
     for t in filtered_types:
         if t not in PRICES:
-            await interaction.response.send_message(f"❌ النوع `{t}` غير صحيح. الأنواع المتاحة: {', '.join(PRICES.keys())}", ephemeral=True)
+            await interaction.response.send_message(f"❌ التخصص `{t}` غير صحيح. التخصصات المتاحة: {', '.join(PRICES.keys())}", ephemeral=True)
             return
 
     records = await load_records()
@@ -740,6 +886,9 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
     username = interaction.user.name
     for idx, ch in enumerate(paid_chapters):
         work_type = filtered_types[idx]
+        # التحقق من عدم التكرار
+        if is_duplicate(records, user_id, العمل, ch, work_type):
+            continue  # تجاهل الفصل المكرر
         total = PRICES[work_type]
         records[user_id].append({
             "work_name": العمل,
@@ -752,6 +901,10 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
         })
         added += 1
 
+    if added == 0:
+        await interaction.response.send_message("⚠️ لم يتم إضافة أي فصل جديد (جميع الفصول إما مكررة أو مجانية).", ephemeral=True)
+        return
+
     await save_records(records)
     await update_stats()
 
@@ -761,12 +914,12 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
     if free_count > 0:
         embed.add_field(name="⏭️ فصول مجانية لم تُسجّل", value=str(free_count), inline=True)
     if len(set(filtered_types)) == 1:
-        embed.add_field(name="**🛠️ النوع**", value=filtered_types[0], inline=True)
+        embed.add_field(name="**🛠️ التخصص**", value=filtered_types[0], inline=True)
         total_amount = added * PRICES[filtered_types[0]]
     else:
         total_amount = sum(PRICES[t] for t in filtered_types)
         types_summary = "\n".join([f"فصل {ch}: {t}" for ch, t in zip(paid_chapters, filtered_types)])
-        embed.add_field(name="**🛠️ تفاصيل الأنواع**", value=types_summary, inline=False)
+        embed.add_field(name="**🛠️ تفاصيل التخصصات**", value=types_summary, inline=False)
     embed.add_field(name="**💰 المبلغ الإجمالي**", value=f"{SETTINGS.get('currency', '$')}{total_amount:.2f}", inline=False)
     if ملاحظات:
         embed.add_field(name="**📝 ملاحظات**", value=ملاحظات, inline=False)
@@ -796,7 +949,7 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
     عضو="العضو الذي تريد تسجيل الشغل له",
     العمل="اسم العمل (يجب أن يكون موجوداً في القائمة)",
     الفصول="نطاق الفصول مثل 1-5 أو 1,3,5",
-    الانواع="الأنواع مثل ترجمة كوري-تحرير-تبييض",
+    التخصصات="التخصصات مثل ترجمة كوري-تحرير-تبييض",
     ملاحظات="ملاحظات اختيارية"
 )
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
@@ -805,7 +958,7 @@ async def register_for_member(
     عضو: discord.Member,
     العمل: str,
     الفصول: str,
-    الانواع: str,
+    التخصصات: str,
     ملاحظات: str = None
 ):
     if not is_admin(interaction):
@@ -838,28 +991,26 @@ async def register_for_member(
         await interaction.response.send_message("⚠️ جميع الفصول المدخلة مجانية ولم تُسجّل.", ephemeral=True)
         return
 
-    # تحليل الأنواع
-    types_list = parse_mixed_types(الانواع, len(chapters_list))
+    # تحليل التخصصات
+    types_list = parse_mixed_types(التخصصات, len(chapters_list))
     if types_list is None:
-        await interaction.response.send_message(f"❌ عدد الأنواع لا يتطابق مع عدد الفصول ({len(chapters_list)}).", ephemeral=True)
+        await interaction.response.send_message(f"❌ عدد التخصصات لا يتطابق مع عدد الفصول ({len(chapters_list)}).", ephemeral=True)
         return
 
-    # تعيين الأنواع إلى المفاتيح الفعلية
-    def map_type(t):
-        return t.strip().replace(' ', '_')
+    # تعيين التخصصات إلى المفاتيح الفعلية
     mapped_types = [map_type(t) for t in types_list]
 
-    # مطابقة الأنواع للفصول المدفوعة فقط
+    # مطابقة التخصصات للفصول المدفوعة فقط
     filtered_types = []
     kept_set = set(paid_chapters)
     for idx, ch in enumerate(chapters_list):
         if ch in kept_set:
             filtered_types.append(mapped_types[idx])
 
-    # التحقق من صحة الأنواع
+    # التحقق من صحة التخصصات
     for t in filtered_types:
         if t not in PRICES:
-            await interaction.response.send_message(f"❌ النوع `{t}` غير صحيح. الأنواع المسموحة: {', '.join(PRICES.keys())}", ephemeral=True)
+            await interaction.response.send_message(f"❌ التخصص `{t}` غير صحيح. التخصصات المسموحة: {', '.join(PRICES.keys())}", ephemeral=True)
             return
 
     # جلب السجلات وحفظها
@@ -869,9 +1020,11 @@ async def register_for_member(
         records[user_id] = []
 
     added = 0
-    username = عضو.name  # حفظ اسم العضو
+    username = عضو.name
     for idx, ch in enumerate(paid_chapters):
         work_type = filtered_types[idx]
+        if is_duplicate(records, user_id, العمل, ch, work_type):
+            continue
         total = PRICES[work_type]
         records[user_id].append({
             "work_name": العمل,
@@ -881,9 +1034,13 @@ async def register_for_member(
             "notes": ملاحظات or "",
             "timestamp": datetime.utcnow().isoformat(),
             "username": username,
-            "added_by": str(interaction.user.id)  # من قام بالإضافة
+            "added_by": str(interaction.user.id)
         })
         added += 1
+
+    if added == 0:
+        await interaction.response.send_message("⚠️ لم يتم إضافة أي فصل جديد (جميع الفصول مكررة).", ephemeral=True)
+        return
 
     await save_records(records)
     await update_stats()
@@ -896,12 +1053,12 @@ async def register_for_member(
     if free_count > 0:
         embed.add_field(name="⏭️ فصول مجانية لم تُسجّل", value=str(free_count), inline=True)
     if len(set(filtered_types)) == 1:
-        embed.add_field(name="**🛠️ النوع**", value=filtered_types[0], inline=True)
+        embed.add_field(name="**🛠️ التخصص**", value=filtered_types[0], inline=True)
         total_amount = added * PRICES[filtered_types[0]]
     else:
         total_amount = sum(PRICES[t] for t in filtered_types)
         types_summary = "\n".join([f"فصل {ch}: {t}" for ch, t in zip(paid_chapters, filtered_types)])
-        embed.add_field(name="**🛠️ تفاصيل الأنواع**", value=types_summary, inline=False)
+        embed.add_field(name="**🛠️ تفاصيل التخصصات**", value=types_summary, inline=False)
     embed.add_field(name="**💰 المبلغ الإجمالي**", value=f"{SETTINGS.get('currency', '$')}{total_amount:.2f}", inline=False)
     embed.add_field(name="**🛡️ أضيف بواسطة**", value=interaction.user.mention, inline=True)
     if ملاحظات:
@@ -918,7 +1075,7 @@ async def register_for_member(
 
     # سجل التدقيق
     await log_audit("تسجيل_للغير", interaction.user.id, عضو.id,
-                    f"أضاف {added} فصل لـ {العمل} (الأنواع: {','.join(filtered_types)})")
+                    f"أضاف {added} فصل لـ {العمل} (التخصصات: {','.join(filtered_types)})")
 
     # إشعار خاص للعضو (اختياري)
     try:
@@ -939,21 +1096,21 @@ async def analysis(ctx, *, text=None):
             "!تحليل\n"
             "العمل: اسم العمل\n"
             "الفصل: رقم الفصل  أو  نطاق الفصول (مثل 1-5)\n"
-            "النوع: نوع واحد  أو  أنواع مفصولة بـ - (مثل ترجمة كوري-تحرير)\n"
+            "التخصص: تخصص واحد  أو  تخصصات مفصولة بـ - (مثل ترجمة كوري-تحرير)\n"
             "ملاحظات: اختياري\n"
             "```\n"
-            "**الأنواع المتاحة:** " + "، ".join(PRICES.keys())
+            "**التخصصات المتاحة:** " + "، ".join(PRICES.keys())
         )
         return
 
     fields = parse_fields(text)
     work_name = fields.get("العمل") or fields.get("اسم العمل")
     chapter_str = fields.get("الفصل") or fields.get("رقم الفصل")
-    types_str = fields.get("النوع") or fields.get("الشغل")
+    types_str = fields.get("التخصص") or fields.get("الشغل")
     notes = fields.get("ملاحظات", "")
 
     if not work_name or not chapter_str or not types_str:
-        await ctx.send("❌ فيه بيانات ناقصة. لازم تكتب: `العمل`، `الفصل`، `النوع`")
+        await ctx.send("❌ فيه بيانات ناقصة. لازم تكتب: `العمل`، `الفصل`، `التخصص`")
         return
 
     work = await get_work(work_name)
@@ -976,12 +1133,9 @@ async def analysis(ctx, *, text=None):
 
     original_types = parse_mixed_types(types_str, len(chapters_list))
     if original_types is None:
-        await ctx.send(f"❌ عدد الأنواع لا يتطابق مع عدد الفصول ({len(chapters_list)}).")
+        await ctx.send(f"❌ عدد التخصصات لا يتطابق مع عدد الفصول ({len(chapters_list)}).")
         return
 
-    # تحويل المسافات إلى شرطات سفلية
-    def map_type(t):
-        return t.strip().replace(' ', '_')
     mapped_types = [map_type(t) for t in original_types]
 
     filtered_types = []
@@ -992,7 +1146,7 @@ async def analysis(ctx, *, text=None):
 
     for t in filtered_types:
         if t not in PRICES:
-            await ctx.send(f"❌ النوع `{t}` غير صحيح. الأنواع: {', '.join(PRICES.keys())}")
+            await ctx.send(f"❌ التخصص `{t}` غير صحيح. التخصصات: {', '.join(PRICES.keys())}")
             return
 
     records = await load_records()
@@ -1004,6 +1158,8 @@ async def analysis(ctx, *, text=None):
     username = ctx.author.name
     for idx, ch in enumerate(paid_chapters):
         work_type = filtered_types[idx]
+        if is_duplicate(records, user_id, work_name, ch, work_type):
+            continue
         total = PRICES[work_type]
         records[user_id].append({
             "work_name": work_name,
@@ -1016,6 +1172,10 @@ async def analysis(ctx, *, text=None):
         })
         added += 1
 
+    if added == 0:
+        await ctx.send("⚠️ لم يتم إضافة أي فصل جديد (جميع الفصول مكررة).")
+        return
+
     await save_records(records)
     await update_stats()
 
@@ -1025,12 +1185,12 @@ async def analysis(ctx, *, text=None):
     if free_count > 0:
         embed.add_field(name="⏭️ فصول مجانية لم تُسجّل", value=str(free_count), inline=True)
     if len(set(filtered_types)) == 1:
-        embed.add_field(name="**🛠️ النوع**", value=filtered_types[0], inline=True)
+        embed.add_field(name="**🛠️ التخصص**", value=filtered_types[0], inline=True)
         total_amount = added * PRICES[filtered_types[0]]
     else:
         total_amount = sum(PRICES[t] for t in filtered_types)
         types_summary = "\n".join([f"فصل {ch}: {t}" for ch, t in zip(paid_chapters, filtered_types)])
-        embed.add_field(name="**🛠️ تفاصيل الأنواع**", value=types_summary, inline=False)
+        embed.add_field(name="**🛠️ تفاصيل التخصصات**", value=types_summary, inline=False)
     embed.add_field(name="**💰 المبلغ الإجمالي**", value=f"{SETTINGS.get('currency', '$')}{total_amount:.2f}", inline=False)
     if notes:
         embed.add_field(name="**📝 ملاحظات**", value=notes, inline=False)
@@ -1124,7 +1284,7 @@ class DeleteSelect(discord.ui.Select):
                 return
             options = []
             for e in work_entries:
-                options.append(discord.SelectOption(label=f"فصل {e.get('chapter')}", value=e.get('chapter'), description=f"النوع: {e.get('work_type')}"))
+                options.append(discord.SelectOption(label=f"فصل {e.get('chapter')}", value=e.get('chapter'), description=f"التخصص: {e.get('work_type')}"))
             options.append(discord.SelectOption(label="❌ إلغاء", value="cancel"))
             select = discord.ui.Select(placeholder="اختر الفصل المراد حذفه...", options=options)
             async def select_callback(interaction2):
@@ -1250,7 +1410,7 @@ async def delete_work_text(ctx, member: discord.Member = None, number: int = Non
     embed.add_field(name="**المستخدم**", value=member.mention, inline=True)
     embed.add_field(name="**العمل**", value=deleted.get('work_name', 'غير محدد'), inline=True)
     embed.add_field(name="**الفصل**", value=deleted.get('chapter', 'غير محدد'), inline=True)
-    embed.add_field(name="**النوع**", value=deleted.get('work_type', 'غير محدد'), inline=True)
+    embed.add_field(name="**التخصص**", value=deleted.get('work_type', 'غير محدد'), inline=True)
     embed.add_field(name="**المبلغ**", value=f"{SETTINGS.get('currency', '$')}{deleted.get('total', 0):.2f}", inline=True)
     await ctx.send(embed=embed)
 
@@ -1384,7 +1544,7 @@ class WorkDetailsView(discord.ui.View):
         for ch in page_chapters:
             embed.add_field(
                 name=f"**📖 فصل {ch['chapter']}**",
-                value=f"**النوع:** {ch['type']}\n**المبلغ:** {self.currency}{ch['total']:.2f}\n**ملاحظات:** {ch.get('notes', 'لا توجد')}",
+                value=f"**التخصص:** {ch['type']}\n**المبلغ:** {self.currency}{ch['total']:.2f}\n**ملاحظات:** {ch.get('notes', 'لا توجد')}",
                 inline=False
             )
         if self.total_pages > 1:
@@ -1586,13 +1746,13 @@ async def stats(interaction: discord.Interaction):
     last_updated = stat_doc.get("last_updated", "غير معروف")
 
     embed = discord.Embed(title="📊 **إحصائيات شاملة**", color=discord.Color.teal())
-    embed.add_field(name="**📄 إجمالي السجلات**", value=total_entries, inline=True)
+    embed.add_field(name="**📄 إجمالي الفصول**", value=total_entries, inline=True)
     embed.add_field(name="**💰 إجمالي المبالغ**", value=f"{SETTINGS.get('currency', '$')}{total_amount:.2f}", inline=True)
     type_lines = "\n".join([f"**{k.replace('_',' ').title()}:** {v}" for k,v in type_counts.items()])
-    embed.add_field(name="**📊 تفصيل الأنواع**", value=type_lines, inline=False)
-    embed.add_field(name="**📅 اليوم**", value=f"سجلات: {daily['entries']}\nالمبلغ: {SETTINGS.get('currency', '$')}{daily['amount']:.2f}", inline=True)
-    embed.add_field(name="**📆 هذا الأسبوع**", value=f"سجلات: {weekly['entries']}\nالمبلغ: {SETTINGS.get('currency', '$')}{weekly['amount']:.2f}", inline=True)
-    embed.add_field(name="**📆 هذا الشهر**", value=f"سجلات: {monthly['entries']}\nالمبلغ: {SETTINGS.get('currency', '$')}{monthly['amount']:.2f}", inline=True)
+    embed.add_field(name="**📊 تفصيل التخصصات**", value=type_lines, inline=False)
+    embed.add_field(name="**📅 اليوم**", value=f"فصول: {daily['entries']}\nالمبلغ: {SETTINGS.get('currency', '$')}{daily['amount']:.2f}", inline=True)
+    embed.add_field(name="**📆 هذا الأسبوع**", value=f"فصول: {weekly['entries']}\nالمبلغ: {SETTINGS.get('currency', '$')}{weekly['amount']:.2f}", inline=True)
+    embed.add_field(name="**📆 هذا الشهر**", value=f"فصول: {monthly['entries']}\nالمبلغ: {SETTINGS.get('currency', '$')}{monthly['amount']:.2f}", inline=True)
     if top_members:
         top_list = ""
         records = await load_records()
@@ -1625,7 +1785,6 @@ async def my_works_slash(interaction: discord.Interaction):
         await interaction.response.send_message("📭 ليس لديك أي شغل.", ephemeral=True)
         return
 
-    # فصل الأعمال العادية عن المكافآت والخصومات
     works = {}
     bonuses = []
     deductions = []
@@ -1652,7 +1811,6 @@ async def my_works_slash(interaction: discord.Interaction):
         type_str = ", ".join([f"**{k.replace('_',' ').title()}:** {v}" for k,v in types_count.items() if v>0])
         embed.add_field(name=f"**▸ {work}**", value=f"**الفصول:** {chapters_count}\n**التفصيل:** {type_str}\n**المجموع:** {SETTINGS.get('currency', '$')}{work_total:.2f}", inline=False)
 
-    # المكافآت والخصومات
     total_bonus = sum(e.get("total", 0) for e in bonuses)
     total_deduction = sum(abs(e.get("total", 0)) for e in deductions)
     total_all += total_bonus - total_deduction
@@ -1667,7 +1825,6 @@ async def my_works_slash(interaction: discord.Interaction):
 
     embed.add_field(name="**💵 الإجمالي العام**", value=f"{SETTINGS.get('currency', '$')}{total_all:.2f}", inline=False)
 
-    # أزرار تفاصيل الأعمال
     view = discord.ui.View(timeout=60)
     for work, entries in list(works.items())[:5]:
         chapters_details = [{"chapter": e.get("chapter"), "type": e.get("work_type"), "total": e.get("total", 0), "notes": e.get("notes", "")} for e in entries]
@@ -1866,6 +2023,8 @@ async def dashboard(interaction: discord.Interaction):
     embed.add_field(name="**🔔 قناة الإشعارات**", value=f"<#{SETTINGS.get('notify_channel_id')}>" if SETTINGS.get('notify_channel_id') else "غير محدد", inline=True)
     embed.add_field(name="**💾 قناة النسخ الاحتياطي**", value=f"<#{SETTINGS.get('daily_backup_channel_id')}>" if SETTINGS.get('daily_backup_channel_id') else "غير محدد", inline=True)
     embed.add_field(name="**⚠️ حد التنبيه**", value=f"{SETTINGS.get('currency', '$')}{SETTINGS.get('alert_threshold', 10):.2f}", inline=True)
+    payment_day = SETTINGS.get("payment_day")
+    embed.add_field(name="**📅 موعد الدفع الشهري**", value=f"يوم {payment_day} الساعة {SETTINGS.get('payment_hour', 0)}" if payment_day else "غير محدد", inline=True)
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="سجل", description="عرض آخر 20 عملية إدارية")
@@ -1899,7 +2058,7 @@ async def my_weekly_report(interaction: discord.Interaction):
     week_ago = datetime.utcnow() - timedelta(days=7)
     week_entries = [e for e in records[user_id] if "timestamp" in e and datetime.fromisoformat(e["timestamp"]) > week_ago]
     if not week_entries:
-        await interaction.response.send_message("لا يوجد سجلات خلال الأسبوع الماضي.", ephemeral=True)
+        await interaction.response.send_message("لا يوجد فصول خلال الأسبوع الماضي.", ephemeral=True)
         return
     total = sum(e.get("total", 0) for e in week_entries)
     embed = discord.Embed(title="📅 **تقريرك الأسبوعي**", color=discord.Color.green())
@@ -1909,7 +2068,7 @@ async def my_weekly_report(interaction: discord.Interaction):
 
 @bot.tree.command(name="تعديل", description="تعديل آخر سجل قمت بإضافته")
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
-async def edit_last(interaction: discord.Interaction, العمل: str = None, الفصل: str = None, النوع: str = None, ملاحظات: str = None):
+async def edit_last(interaction: discord.Interaction, العمل: str = None, الفصل: str = None, التخصص: str = None, ملاحظات: str = None):
     records = await load_records()
     user_id = str(interaction.user.id)
     if user_id not in records or not records[user_id]:
@@ -1920,10 +2079,10 @@ async def edit_last(interaction: discord.Interaction, العمل: str = None, ا
         last["work_name"] = العمل
     if الفصل:
         last["chapter"] = الفصل
-    if النوع:
-        norm_type = النوع.strip().replace(' ', '_')
+    if التخصص:
+        norm_type = map_type(التخصص)
         if norm_type not in PRICES:
-            await interaction.response.send_message("النوع غير صحيح.", ephemeral=True)
+            await interaction.response.send_message("التخصص غير صحيح.", ephemeral=True)
             return
         last["work_type"] = norm_type
         last["total"] = PRICES[norm_type]
@@ -1951,7 +2110,7 @@ async def export_excel(interaction: discord.Interaction):
                 "معرف العضو": user_id,
                 "العمل": entry.get("work_name"),
                 "الفصل": entry.get("chapter"),
-                "النوع": entry.get("work_type"),
+                "التخصص": entry.get("work_type"),
                 "المبلغ": entry.get("total"),
                 "ملاحظات": entry.get("notes"),
                 "التاريخ": entry.get("timestamp", "")
@@ -2155,6 +2314,85 @@ async def list_works(interaction: discord.Interaction):
     await interaction.response.send_message(embed=view.get_embed(), view=view)
 
 # ----------------------------------------------------------------------
+# NEW: Specialty management commands
+# ----------------------------------------------------------------------
+@bot.tree.command(name="اضافة_تخصص", description="إضافة تخصص جديد (للمشرفين)")
+@app_commands.describe(الاسم="اسم التخصص (مثال: تدقيق)", السعر="سعر الفصل الواحد", نشط="مفعل؟")
+@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
+async def add_specialty(interaction: discord.Interaction, الاسم: str, السعر: float, نشط: bool = True):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "اضافة_تخصص")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+    norm_name = map_type(الاسم)
+    if norm_name in SETTINGS.get("specialties", {}):
+        await interaction.response.send_message("❌ التخصص موجود مسبقاً.", ephemeral=True)
+        return
+    SETTINGS["specialties"][norm_name] = {
+        "price": السعر,
+        "active": نشط,
+        "last_modified": datetime.utcnow().isoformat()
+    }
+    await save_settings(SETTINGS)
+    rebuild_prices()
+    await log_audit("اضافة_تخصص", interaction.user.id, None, f"أضاف تخصص {norm_name} بسعر {السعر}")
+    await interaction.response.send_message(f"✅ تم إضافة تخصص `{norm_name}`.", ephemeral=True)
+
+@bot.tree.command(name="حذف_تخصص", description="حذف (تعطيل) تخصص (للمشرفين)")
+@app_commands.autocomplete(الاسم=specialty_autocomplete)
+@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
+async def delete_specialty(interaction: discord.Interaction, الاسم: str):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "حذف_تخصص")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+    norm_name = map_type(الاسم)
+    if norm_name not in SETTINGS.get("specialties", {}):
+        await interaction.response.send_message("❌ التخصص غير موجود.", ephemeral=True)
+        return
+    SETTINGS["specialties"][norm_name]["active"] = False
+    await save_settings(SETTINGS)
+    rebuild_prices()
+    await log_audit("حذف_تخصص", interaction.user.id, None, f"عطّل تخصص {norm_name}")
+    await interaction.response.send_message(f"✅ تم تعطيل تخصص `{norm_name}`.", ephemeral=True)
+
+@bot.tree.command(name="تفعيل_تخصص", description="تفعيل تخصص معطل (للمشرفين)")
+@app_commands.autocomplete(الاسم=specialty_autocomplete)
+@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
+async def activate_specialty(interaction: discord.Interaction, الاسم: str):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "تفعيل_تخصص")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+    norm_name = map_type(الاسم)
+    specialties = SETTINGS.get("specialties", {})
+    if norm_name not in specialties:
+        await interaction.response.send_message("❌ التخصص غير موجود.", ephemeral=True)
+        return
+    specialties[norm_name]["active"] = True
+    await save_settings(SETTINGS)
+    rebuild_prices()
+    await interaction.response.send_message(f"✅ تم تفعيل تخصص `{norm_name}`.", ephemeral=True)
+
+@bot.tree.command(name="تعطيل_تخصص", description="تعطيل تخصص (للمشرفين)")
+@app_commands.autocomplete(الاسم=specialty_autocomplete)
+@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
+async def deactivate_specialty(interaction: discord.Interaction, الاسم: str):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "تعطيل_تخصص")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+    norm_name = map_type(الاسم)
+    specialties = SETTINGS.get("specialties", {})
+    if norm_name not in specialties:
+        await interaction.response.send_message("❌ التخصص غير موجود.", ephemeral=True)
+        return
+    specialties[norm_name]["active"] = False
+    await save_settings(SETTINGS)
+    rebuild_prices()
+    await interaction.response.send_message(f"✅ تم تعطيل تخصص `{norm_name}`.", ephemeral=True)
+
+# ----------------------------------------------------------------------
 # NEW: /مكافأة and /خصم (Admin bonus and deduction system)
 # ----------------------------------------------------------------------
 @bot.tree.command(name="مكافأة", description="إضافة مكافأة (مبلغ موجب) لعضو - للإدارة فقط")
@@ -2248,12 +2486,209 @@ async def add_deduction(interaction: discord.Interaction, عضو: discord.Member
         pass
 
 # ----------------------------------------------------------------------
+# NEW: /حذف_مكافأة_خصم (Delete bonus/deduction entry)
+# ----------------------------------------------------------------------
+@bot.tree.command(name="حذف_مكافأة_خصم", description="حذف مكافأة أو خصم سابق لعضو - للإدارة فقط")
+@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
+async def delete_bonus_deduction(interaction: discord.Interaction, عضو: discord.Member):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "حذف_مكافأة_خصم")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+    records = await load_records()
+    user_id = str(عضو.id)
+    if user_id not in records:
+        await interaction.response.send_message("❌ لا يوجد سجلات لهذا العضو.", ephemeral=True)
+        return
+
+    # Gather last 10 bonus/deduction entries
+    all_entries = records[user_id]
+    bonus_ded_entries = [e for e in all_entries if e.get("work_type") in ("مكافأة", "خصم")]
+    bonus_ded_entries.reverse()  # newest first
+    recent = bonus_ded_entries[:10]
+    if not recent:
+        await interaction.response.send_message("❌ لا يوجد عمليات مكافأة أو خصم لهذا العضو.", ephemeral=True)
+        return
+
+    options = []
+    for i, e in enumerate(recent):
+        desc = f"{e.get('work_type')} {abs(e.get('total', 0)):.2f} - {e.get('notes','')[:50]}"
+        options.append(discord.SelectOption(label=f"{i+1}. {desc}", value=str(i)))
+    options.append(discord.SelectOption(label="❌ إلغاء", value="cancel"))
+
+    select = discord.ui.Select(placeholder="اختر العملية للحذف...", options=options)
+    async def select_callback(interaction2: discord.Interaction):
+        if select.values[0] == "cancel":
+            await interaction2.response.edit_message(content="تم الإلغاء.", view=None)
+            return
+        idx = int(select.values[0])
+        entry_to_delete = recent[idx]
+        # Confirm
+        await interaction2.response.send_message(f"⚠️ تأكيد حذف {entry_to_delete.get('work_type')} بمبلغ {abs(entry_to_delete.get('total',0)):.2f}.\nاكتب `تأكيد` خلال 30 ثانية.", ephemeral=True)
+        def check(m):
+            return m.author == interaction2.user and m.content == "تأكيد" and m.channel == interaction2.channel
+        try:
+            await bot.wait_for('message', timeout=30.0, check=check)
+        except:
+            await interaction2.followup.send("❌ تم الإلغاء.", ephemeral=True)
+            return
+        # Remove the entry from records
+        records2 = await load_records()
+        if user_id in records2:
+            # Find and remove by exact match (using timestamp and details)
+            new_entries = []
+            removed = False
+            for e in records2[user_id]:
+                if not removed and e == entry_to_delete:
+                    removed = True
+                    continue
+                new_entries.append(e)
+            if removed:
+                records2[user_id] = new_entries
+                if not records2[user_id]:
+                    del records2[user_id]
+                await save_records(records2)
+                await log_audit("حذف_مكافأة_خصم", interaction2.user.id, عضو.id, f"حذف {entry_to_delete.get('work_type')} {abs(entry_to_delete.get('total',0)):.2f}")
+                await update_stats()
+                await interaction2.followup.send("✅ تم حذف العملية بنجاح.", ephemeral=True)
+            else:
+                await interaction2.followup.send("❌ لم يتم العثور على العملية.", ephemeral=True)
+        else:
+            await interaction2.followup.send("❌ لا توجد سجلات.", ephemeral=True)
+    select.callback = select_callback
+    view = discord.ui.View(timeout=60)
+    view.add_item(select)
+    await interaction.response.send_message(f"**عمليات المكافآت والخصومات للعضو {عضو.mention}:**", view=view)
+
+# ----------------------------------------------------------------------
+# NEW: Payment schedule command
+# ----------------------------------------------------------------------
+@bot.tree.command(name="تحديد_موعد_الدفع", description="تحديد يوم وساعة الدفع الشهري (للمشرفين)")
+@app_commands.describe(اليوم="يوم الشهر (1-28)", الساعة="الساعة (0-23)، افتراضي 0")
+@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
+async def set_payment_day(interaction: discord.Interaction, اليوم: int, الساعة: int = 0):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "تحديد_موعد_الدفع")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+    if not (1 <= اليوم <= 28):
+        await interaction.response.send_message("❌ اليوم يجب أن يكون بين 1 و 28.", ephemeral=True)
+        return
+    if not (0 <= الساعة <= 23):
+        await interaction.response.send_message("❌ الساعة يجب أن تكون بين 0 و 23.", ephemeral=True)
+        return
+    SETTINGS["payment_day"] = اليوم
+    SETTINGS["payment_hour"] = الساعة
+    SETTINGS["payment_reminder_24h_sent"] = False
+    SETTINGS["payment_day_sent"] = False
+    await save_settings(SETTINGS)
+    await interaction.response.send_message(f"✅ تم تعيين موعد الدفع الشهري يوم {اليوم} الساعة {الساعة}:00.", ephemeral=True)
+    await log_audit("تحديد_موعد_الدفع", interaction.user.id, None, f"يوم {اليوم} ساعة {الساعة}")
+
+@bot.tree.command(name="تقرير_دفع", description="تقرير الدفع الشهري مع خيار تصدير Excel")
+@app_commands.checks.cooldown(1, 10, key=lambda i: (i.user.id, i.command.qualified_name))
+async def payment_report(interaction: discord.Interaction):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "تقرير_دفع")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+    records = await load_records()
+    month_start = datetime.utcnow().replace(day=1)
+    totals = {}
+    details = {}
+    for user_id, entries in records.items():
+        user_total = 0
+        user_entries = []
+        for e in entries:
+            try:
+                entry_date = datetime.fromisoformat(e["timestamp"])
+                if entry_date >= month_start:
+                    user_total += e.get("total", 0)
+                    user_entries.append(e)
+            except:
+                pass
+        if user_entries:
+            totals[user_id] = user_total
+            details[user_id] = user_entries
+    if not totals:
+        await interaction.response.send_message("لا توجد أي سجلات لهذا الشهر.", ephemeral=True)
+        return
+
+    embed = discord.Embed(title="📅 **تقرير الدفع الشهري**", color=discord.Color.green())
+    grand_total = sum(totals.values())
+    embed.add_field(name="إجمالي المبلغ المستحق", value=f"{SETTINGS.get('currency', '$')}{grand_total:.2f}", inline=False)
+    # Show top 10
+    sorted_totals = sorted(totals.items(), key=lambda x: x[1], reverse=True)[:10]
+    member_list = "\n".join([f"<@{uid}>: {SETTINGS.get('currency', '$')}{amt:.2f}" for uid, amt in sorted_totals])
+    embed.add_field(name="المستحقات (أول 10)", value=member_list, inline=False)
+
+    # Button to export monthly Excel
+    async def export_callback(interaction2: discord.Interaction):
+        rows = []
+        for user_id, entries in details.items():
+            user = interaction.guild.get_member(int(user_id))
+            username = user.display_name if user else user_id
+            for entry in entries:
+                rows.append({
+                    "اسم العضو": username,
+                    "معرف العضو": user_id,
+                    "العمل": entry.get("work_name"),
+                    "الفصل": entry.get("chapter"),
+                    "التخصص": entry.get("work_type"),
+                    "المبلغ": entry.get("total"),
+                    "ملاحظات": entry.get("notes"),
+                    "التاريخ": entry.get("timestamp", "")
+                })
+        df = pd.DataFrame(rows)
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name="تقرير_الشهر")
+        buffer.seek(0)
+        await interaction2.response.send_message(file=discord.File(buffer, filename=f"payment_report_{datetime.utcnow().date()}.xlsx"))
+
+    view = discord.ui.View(timeout=60)
+    export_btn = discord.ui.Button(label="📥 تصدير Excel", style=discord.ButtonStyle.primary)
+    export_btn.callback = export_callback
+    view.add_item(export_btn)
+    await interaction.response.send_message(embed=embed, view=view)
+
+# ----------------------------------------------------------------------
+# NEW: /ملخص_شهري for members
+# ----------------------------------------------------------------------
+@bot.tree.command(name="ملخص_شهري", description="ملخص شغلك للشهر الحالي")
+@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
+async def monthly_summary(interaction: discord.Interaction):
+    if interaction.channel.name not in SETTINGS.get("allowed_channels", []):
+        await interaction.response.send_message("❌ القناة غير مسموحة.", ephemeral=True)
+        return
+    records = await load_records()
+    user_id = str(interaction.user.id)
+    if user_id not in records:
+        await interaction.response.send_message("📭 ليس لديك أي شغل.", ephemeral=True)
+        return
+    month_start = datetime.utcnow().replace(day=1)
+    month_entries = [e for e in records[user_id] if "timestamp" in e and datetime.fromisoformat(e["timestamp"]) >= month_start]
+    if not month_entries:
+        await interaction.response.send_message("لم تقم بأي عمل هذا الشهر.", ephemeral=True)
+        return
+    total = sum(e.get("total", 0) for e in month_entries)
+    works_count = defaultdict(int)
+    for e in month_entries:
+        works_count[e.get("work_name", "غير محدد")] += 1
+    details_str = "\n".join([f"**{w}:** {c} فصول" for w, c in works_count.items()])
+    embed = discord.Embed(title="📆 **ملخصك الشهري**", color=discord.Color.blue())
+    embed.add_field(name="عدد الفصول المنجزة", value=len(month_entries), inline=True)
+    embed.add_field(name="المبلغ المستحق", value=f"{SETTINGS.get('currency', '$')}{total:.2f}", inline=True)
+    embed.add_field(name="تفصيل الأعمال", value=details_str, inline=False)
+    await interaction.response.send_message(embed=embed)
+
+# ----------------------------------------------------------------------
 # Init & run
 # ----------------------------------------------------------------------
 async def init_prices():
     settings = await load_settings()
-    if "prices" not in settings:
-        settings["prices"] = PRICES
+    if "specialties" not in settings:
+        settings["specialties"] = DEFAULT_SPECIALTIES.copy()
         await save_settings(settings)
 
 async def custom_setup():
