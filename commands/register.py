@@ -101,13 +101,13 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
     # Embed موحد (بدون وصف، بدون حقل الحالة، التاريخ بالنهاية بنظام 12 ساعة)
     embed = make_embed("finance", "🧾 إيصال تسجيل العمل", "", interaction, interaction.user)
     embed.color = discord.Color.gold()
-    embed.set_footer(text="💼 نظام تسجيل الأعمال", icon_url=interaction.client.user.display_avatar.url)
+    embed.set_footer(text="ZEUS", icon_url=interaction.client.user.display_avatar.url)
 
     embed.add_field(name="👤 العضو", value=interaction.user.mention, inline=True)
     embed.add_field(name="📖 العمل", value=العمل, inline=True)
 
     chapters_str = ", ".join(str(ch) for ch in added_chapters_list)
-    embed.add_field(name="📋 الفصول المضافة", value=chapters_str, inline=False)
+    embed.add_field(name="📋 الفصل المضاف", value=chapters_str, inline=False)
     embed.add_field(name="🔢 إجمالي الفصول", value=str(added), inline=True)
 
     if free_count > 0:
@@ -247,14 +247,14 @@ async def register_for_member(
     # Embed موحد (نفس تصميم /تسجيل)
     embed = make_embed("finance", "🧾 إيصال تسجيل العمل", "", interaction, interaction.user)
     embed.color = discord.Color.gold()
-    embed.set_footer(text="💼 نظام تسجيل الأعمال", icon_url=interaction.client.user.display_avatar.url)
+    embed.set_footer(text="ZEUS", icon_url=interaction.client.user.display_avatar.url)
 
     embed.add_field(name="👤 العضو", value=عضو.mention, inline=True)
     embed.add_field(name="🛡️ أضيف بواسطة", value=interaction.user.mention, inline=True)
     embed.add_field(name="📖 العمل", value=العمل, inline=True)
 
     chapters_str = ", ".join(str(ch) for ch in added_chapters_list)
-    embed.add_field(name="📋 الفصول المضافة", value=chapters_str, inline=False)
+    embed.add_field(name="📋 الفصل المضاف", value=chapters_str, inline=False)
     embed.add_field(name="🔢 إجمالي الفصول", value=str(added), inline=True)
 
     if free_count > 0:
@@ -395,13 +395,13 @@ async def analysis(ctx, *, text=None):
         color=discord.Color.gold()
     )
     embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.display_avatar.url)
-    embed.set_footer(text="💼 نظام تسجيل الأعمال", icon_url=ctx.bot.user.display_avatar.url)
+    embed.set_footer(text="ZEUS", icon_url=ctx.bot.user.display_avatar.url)
 
     embed.add_field(name="👤 العضو", value=ctx.author.mention, inline=True)
     embed.add_field(name="📖 العمل", value=work_name, inline=True)
 
     chapters_str = ", ".join(str(ch) for ch in added_chapters_list)
-    embed.add_field(name="📋 الفصول المضافة", value=chapters_str, inline=False)
+    embed.add_field(name="📋 الفصل المضاف", value=chapters_str, inline=False)
     embed.add_field(name="🔢 إجمالي الفصول", value=str(added), inline=True)
 
     if free_count > 0:
