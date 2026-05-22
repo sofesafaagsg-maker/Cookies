@@ -1,7 +1,9 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 from state import bot
 from helpers.core import *
+
 class DeleteSelect(discord.ui.Select):
     def __init__(self, user_id, work_name=None):
         self.user_id = user_id
@@ -270,7 +272,3 @@ async def delete_all_works(interaction: discord.Interaction):
     await save_works([])
     await log_audit("حذف_كل_الأعمال", interaction.user.id, None, f"تم حذف {len(works)} عمل")
     await interaction.followup.send(f"✅ تم حذف جميع الأعمال ({len(works)} عمل) من القائمة.", ephemeral=True)
-
-# ----------------------------------------------------------------------
-# Work details view (with back button)
-# ----------------------------------------------------------------------
