@@ -106,7 +106,7 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
     # بناء التضمين المحسن
     embed = make_embed("finance", "🧾 إيصال تسجيل العمل", "تمت معالجة عملية التسجيل بنجاح.", interaction, interaction.user)
     embed.color = discord.Color.gold()  # لمسة جمالية
-    embed.set_footer(text="💼 نظام تسجيل الأعمال", icon_url=interaction.client.user.display_avatar.url)
+    embed.set_footer(text="🔥", icon_url=interaction.client.user.display_avatar.url)
     embed.timestamp = datetime.utcnow()
 
     embed.add_field(name="👤 العضو", value=interaction.user.mention, inline=True)
