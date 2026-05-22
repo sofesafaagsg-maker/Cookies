@@ -1,9 +1,11 @@
+# database.py
 import json
 from datetime import datetime, timedelta
 from collections import defaultdict
 import state
 
 async def load_records():
+    """Load records from MongoDB."""
     try:
         doc = await state.collection.find_one({"_id": "records"})
         if doc and "data" in doc:
@@ -14,6 +16,7 @@ async def load_records():
         return {}
 
 async def save_records(records):
+    """Save records to MongoDB."""
     try:
         await state.collection.update_one(
             {"_id": "records"},
@@ -24,12 +27,14 @@ async def save_records(records):
         print(f"[ERROR] save_records() - {e}")
 
 async def load_works() -> list:
+    """Load the list of approved works from the unified collection."""
     doc = await state.collection.find_one({"_id": "works"})
     if doc and "data" in doc:
         return doc["data"]
     return []
 
 async def save_works(works: list):
+    """Save the works list to the unified collection."""
     await state.collection.update_one(
         {"_id": "works"},
         {"$set": {"data": works}},
@@ -37,6 +42,7 @@ async def save_works(works: list):
     )
 
 async def get_work(work_name: str) -> dict | None:
+    """Find a work by name (case‑sensitive)."""
     works = await load_works()
     for w in works:
         if w["name"] == work_name:
@@ -44,6 +50,7 @@ async def get_work(work_name: str) -> dict | None:
     return None
 
 async def delete_all_records_of_work(work_name: str) -> int:
+    """Delete every record that belongs to a specific work (across all users)."""
     records = await load_records()
     removed_total = 0
     users_to_delete = []
@@ -64,17 +71,29 @@ async def delete_all_records_of_work(work_name: str) -> int:
     return removed_total
 
 async def load_settings():
+    """Load settings from MongoDB."""
     try:
         doc = await state.settings_collection.find_one({"_id": "settings"})
         if doc:
+            # Ensure specialties exist
             if "specialties" not in doc:
-                doc["specialties"] = state.SETTINGS.get("specialties", {})
+                doc["specialties"] = {
+                    "تحرير": {"price": 0.50, "active": True, "last_modified": datetime.utcnow().isoformat()},
+                    "ترجمة_كوري": {"price": 0.75, "active": True, "last_modified": datetime.utcnow().isoformat()},
+                    "ترجمة_انجليزي": {"price": 0.60, "active": True, "last_modified": datetime.utcnow().isoformat()},
+                    "تبييض": {"price": 0.25, "active": True, "last_modified": datetime.utcnow().isoformat()},
+                    "سحب": {"price": 0.01, "active": True, "last_modified": datetime.utcnow().isoformat()},
+                    "دمج": {"price": 0.01, "active": True, "last_modified": datetime.utcnow().isoformat()},
+                    "رفع": {"price": 0.005, "active": True, "last_modified": datetime.utcnow().isoformat()},
+                }
+            # Ensure payment settings
             if "payment_day" not in doc:
                 doc["payment_day"] = None
                 doc["payment_hour"] = 0
                 doc["payment_reminder_24h_sent"] = False
                 doc["payment_day_sent"] = False
             return doc
+        # Default settings
         return {
             "allowed_channels": ["تسجيــــــــل-اعمال〢💵"],
             "currency": "$",
@@ -103,7 +122,15 @@ async def load_settings():
             "notify_channel_id": None,
             "daily_backup_channel_id": None,
             "alert_threshold": 10.0,
-            "specialties": {},
+            "specialties": {
+                "تحرير": {"price": 0.50, "active": True, "last_modified": datetime.utcnow().isoformat()},
+                "ترجمة_كوري": {"price": 0.75, "active": True, "last_modified": datetime.utcnow().isoformat()},
+                "ترجمة_انجليزي": {"price": 0.60, "active": True, "last_modified": datetime.utcnow().isoformat()},
+                "تبييض": {"price": 0.25, "active": True, "last_modified": datetime.utcnow().isoformat()},
+                "سحب": {"price": 0.01, "active": True, "last_modified": datetime.utcnow().isoformat()},
+                "دمج": {"price": 0.01, "active": True, "last_modified": datetime.utcnow().isoformat()},
+                "رفع": {"price": 0.005, "active": True, "last_modified": datetime.utcnow().isoformat()},
+            },
             "payment_day": None,
             "payment_hour": 0,
             "payment_reminder_24h_sent": False,
@@ -111,6 +138,7 @@ async def load_settings():
         }
 
 async def save_settings(settings):
+    """Save settings to MongoDB."""
     try:
         await state.settings_collection.update_one(
             {"_id": "settings"},
@@ -121,6 +149,7 @@ async def save_settings(settings):
         print(f"[ERROR] save_settings() - {e}")
 
 async def log_audit(action, moderator_id, target_id, details):
+    """Log an admin action."""
     log_entry = {
         "action": action,
         "moderator_id": str(moderator_id),
@@ -131,10 +160,12 @@ async def log_audit(action, moderator_id, target_id, details):
     await state.audit_collection.insert_one(log_entry)
 
 async def log_unauthorized(user_id, command_name):
+    """Log an unauthorized attempt."""
     await log_audit("محاولة_غير_مصرح_بها", user_id, None,
                     f"محاولة استخدام الأمر {command_name} بدون صلاحية")
 
 async def update_stats():
+    """Update comprehensive stats."""
     records = await load_records()
     total_entries = sum(len(entries) for entries in records.values())
     total_amount = 0
