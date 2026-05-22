@@ -1,14 +1,21 @@
 from typing import List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import re
 import discord
 from discord import app_commands
-from config import DEFAULT_SPECIALTIES
+# تم إضافة DEFAULT_ALLOWED_CHANNELS هنا لحل مشكلة الانهيار
+from config import DEFAULT_SPECIALTIES, DEFAULT_ALLOWED_CHANNELS 
 from database import collection, settings_collection, audit_collection, stats_collection
 
 SETTINGS = {}
 PRICES = {}
+
+def is_admin(interaction: discord.Interaction) -> bool:
+    """Check if the user has administrator permissions in the guild."""
+    if not interaction.guild:
+        return False
+    return interaction.user.guild_permissions.administrator
 
 def format_member_display(guild: discord.Guild, user_id: int, username_hint: str = None) -> str:
     """Return a nice display string for a user: @username if known, otherwise the ID."""
@@ -115,17 +122,14 @@ async def load_settings():
     try:
         doc = await settings_collection.find_one({"_id": "settings"})
         if doc:
-            # Ensure specialties exist
             if "specialties" not in doc:
                 doc["specialties"] = DEFAULT_SPECIALTIES.copy()
-            # Ensure payment settings
             if "payment_day" not in doc:
                 doc["payment_day"] = None
                 doc["payment_hour"] = 0
                 doc["payment_reminder_24h_sent"] = False
                 doc["payment_day_sent"] = False
             return doc
-        # Default settings
         return {
             "allowed_channels": DEFAULT_ALLOWED_CHANNELS.copy(),
             "currency": "$",
@@ -177,7 +181,7 @@ async def log_audit(action, moderator_id, target_id, details):
         "moderator_id": str(moderator_id),
         "target_id": str(target_id) if target_id else None,
         "details": details,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
     await audit_collection.insert_one(log_entry)
 
@@ -214,7 +218,7 @@ async def update_stats():
                          key=lambda x: x[1]["total_amount"], reverse=True)[:5]
     top_members_data = [(uid, stats) for uid, stats in top_members]
 
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
     week_start = today - timedelta(days=today.weekday())
     month_start = today.replace(day=1)
     daily_entries = 0
@@ -251,7 +255,7 @@ async def update_stats():
         "daily": {"entries": daily_entries, "amount": daily_amount},
         "weekly": {"entries": weekly_entries, "amount": weekly_amount},
         "monthly": {"entries": monthly_entries, "amount": monthly_amount},
-        "last_updated": datetime.utcnow().isoformat()
+        "last_updated": datetime.now(timezone.utc).isoformat()
     }
     await stats_collection.update_one(
         {"_id": "stats"},
@@ -331,6 +335,3 @@ def is_duplicate(records, user_id, work_name, chapter, work_type):
             e.get("work_type") == work_type):
             return True
     return False
-
-# ----------------------------------------------------------------------
-# Bot setup
