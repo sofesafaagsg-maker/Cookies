@@ -73,8 +73,12 @@ class DeleteSelect(discord.ui.Select):
                 await interaction.response.send_message("❌ لا توجد فصول لهذا العمل.", ephemeral=True)
                 return
             options = []
+            seen_chapters = set()
             for e in work_entries:
-                options.append(discord.SelectOption(label=f"فصل {e.get('chapter')}", value=e.get('chapter'), description=f"التخصص: {e.get('work_type')}"))
+                ch = e.get('chapter')
+                if ch not in seen_chapters:
+                    seen_chapters.add(ch)
+                    options.append(discord.SelectOption(label=f"فصل {ch}", value=ch, description=f"التخصص: {e.get('work_type')}"))
             options.append(discord.SelectOption(label="❌ إلغاء", value="cancel"))
             select = discord.ui.Select(placeholder="اختر الفصل المراد حذفه...", options=options)
             async def select_callback(interaction2):
