@@ -98,10 +98,10 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
     await save_records(records)
     await update_stats()
 
-    embed = make_embed("finance", "🧾 إيصال تسجيل العمل", "تمت معالجة عملية التسجيل بنجاح.", interaction, interaction.user)
+    # Embed موحد (بدون وصف، بدون حقل الحالة، التاريخ بالنهاية بنظام 12 ساعة)
+    embed = make_embed("finance", "🧾 إيصال تسجيل العمل", "", interaction, interaction.user)
     embed.color = discord.Color.gold()
     embed.set_footer(text="💼 نظام تسجيل الأعمال", icon_url=interaction.client.user.display_avatar.url)
-    embed.timestamp = datetime.utcnow()
 
     embed.add_field(name="👤 العضو", value=interaction.user.mention, inline=True)
     embed.add_field(name="📖 العمل", value=العمل, inline=True)
@@ -121,10 +121,14 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
         types_summary = "\n".join([f"فصل {ch}: {t}" for ch, t in zip(paid_chapters, filtered_types)])
         embed.add_field(name="🛠️ تفاصيل التخصصات", value=types_summary, inline=False)
     embed.add_field(name="💰 الإجمالي", value=f"{SETTINGS.get('currency', '$')}{total_amount:.2f}", inline=True)
-    embed.add_field(name="📅 تاريخ العملية", value=datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"), inline=True)
-    embed.add_field(name="📌 الحالة", value="مكتمل", inline=True)
+
     if ملاحظات:
         embed.add_field(name="📝 ملاحظات", value=ملاحظات, inline=False)
+
+    # تاريخ العملية في النهاية وبنظام 12 ساعة
+    now = datetime.utcnow()
+    time_str = now.strftime("%Y-%m-%d %I:%M %p UTC")
+    embed.add_field(name="📅 تاريخ العملية", value=time_str, inline=False)
 
     await interaction.response.send_message(embed=embed)
 
@@ -143,7 +147,7 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
             pass
 
 # ----------------------------------------------------------------------
-# أمر /تسجيل_للغير (تم تعديله ليطابق تحسينات /تسجيل)
+# أمر /تسجيل_للغير (موحد مع نفس التصميم)
 # ----------------------------------------------------------------------
 @bot.tree.command(name="تسجيل_للغير", description="تسجيل شغل لعضو معين (للمشرفين فقط)")
 @app_commands.autocomplete(العمل=work_autocomplete, التخصصات=specialization_autocomplete)
@@ -240,11 +244,10 @@ async def register_for_member(
     await save_records(records)
     await update_stats()
 
-    # embed مطابق لتحسينات /تسجيل
-    embed = make_embed("finance", "🧾 إيصال تسجيل العمل", "تمت معالجة عملية التسجيل بنجاح.", interaction, interaction.user)
+    # Embed موحد (نفس تصميم /تسجيل)
+    embed = make_embed("finance", "🧾 إيصال تسجيل العمل", "", interaction, interaction.user)
     embed.color = discord.Color.gold()
     embed.set_footer(text="💼 نظام تسجيل الأعمال", icon_url=interaction.client.user.display_avatar.url)
-    embed.timestamp = datetime.utcnow()
 
     embed.add_field(name="👤 العضو", value=عضو.mention, inline=True)
     embed.add_field(name="🛡️ أضيف بواسطة", value=interaction.user.mention, inline=True)
@@ -265,10 +268,13 @@ async def register_for_member(
         types_summary = "\n".join([f"فصل {ch}: {t}" for ch, t in zip(paid_chapters, filtered_types)])
         embed.add_field(name="🛠️ تفاصيل التخصصات", value=types_summary, inline=False)
     embed.add_field(name="💰 الإجمالي", value=f"{SETTINGS.get('currency', '$')}{total_amount:.2f}", inline=True)
-    embed.add_field(name="📅 تاريخ العملية", value=datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"), inline=True)
-    embed.add_field(name="📌 الحالة", value="مكتمل", inline=True)
+
     if ملاحظات:
         embed.add_field(name="📝 ملاحظات", value=ملاحظات, inline=False)
+
+    now = datetime.utcnow()
+    time_str = now.strftime("%Y-%m-%d %I:%M %p UTC")
+    embed.add_field(name="📅 تاريخ العملية", value=time_str, inline=False)
 
     await interaction.response.send_message(embed=embed)
 
@@ -287,7 +293,7 @@ async def register_for_member(
         pass
 
 # ----------------------------------------------------------------------
-# أمر !تحليل (تم تعديل نتيجة التسجيل فقط لتطابق الأوامر الأخرى)
+# أمر !تحليل (موحد تماماً مع أوامر السلاش)
 # ----------------------------------------------------------------------
 @bot.command(name="تحليل")
 @commands.cooldown(1, 5, commands.BucketType.user)
@@ -383,15 +389,13 @@ async def analysis(ctx, *, text=None):
     await save_records(records)
     await update_stats()
 
-    # embed مطابق لتحسينات الأوامر الأخرى، باستخدام ctx بدلاً من interaction
+    # Embed مطابق تماماً لتصميم /تسجيل
     embed = discord.Embed(
         title="🧾 إيصال تسجيل العمل",
-        description="تمت معالجة عملية التسجيل بنجاح.",
         color=discord.Color.gold()
     )
     embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.display_avatar.url)
     embed.set_footer(text="💼 نظام تسجيل الأعمال", icon_url=ctx.bot.user.display_avatar.url)
-    embed.timestamp = datetime.utcnow()
 
     embed.add_field(name="👤 العضو", value=ctx.author.mention, inline=True)
     embed.add_field(name="📖 العمل", value=work_name, inline=True)
@@ -411,10 +415,14 @@ async def analysis(ctx, *, text=None):
         types_summary = "\n".join([f"فصل {ch}: {t}" for ch, t in zip(paid_chapters, filtered_types)])
         embed.add_field(name="🛠️ تفاصيل التخصصات", value=types_summary, inline=False)
     embed.add_field(name="💰 الإجمالي", value=f"{SETTINGS.get('currency', '$')}{total_amount:.2f}", inline=True)
-    embed.add_field(name="📅 تاريخ العملية", value=datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"), inline=True)
-    embed.add_field(name="📌 الحالة", value="مكتمل", inline=True)
+
     if notes:
         embed.add_field(name="📝 ملاحظات", value=notes, inline=False)
+
+    # تاريخ العملية في النهاية وبنظام 12 ساعة
+    now = datetime.utcnow()
+    time_str = now.strftime("%Y-%m-%d %I:%M %p UTC")
+    embed.add_field(name="📅 تاريخ العملية", value=time_str, inline=False)
 
     await ctx.send(embed=embed)
 
