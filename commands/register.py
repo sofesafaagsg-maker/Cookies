@@ -1,12 +1,23 @@
 from datetime import datetime
+from typing import List
 import discord
 from discord import app_commands
 from discord.ext import commands
 from state import bot
 from helpers.core import *
 from tasks.lifecycle import work_autocomplete
+
+# دالة autocomplete جديدة لحقل التخصصات
+async def specialization_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+    choices = [
+        app_commands.Choice(name=t, value=t)
+        for t in PRICES.keys()
+        if current.lower() in t.lower()
+    ]
+    return choices[:25]
+
 @bot.tree.command(name="تسجيل", description="تسجيل شغل جديد (يدعم الفلترة حسب الأعمال المدفوعة)")
-@app_commands.autocomplete(العمل=work_autocomplete)
+@app_commands.autocomplete(العمل=work_autocomplete, التخصصات=specialization_autocomplete)
 @app_commands.describe(
     العمل="اسم العمل (اختر من القائمة)",
     الفصول="نطاق الفصول مثل 1-5 أو 1,3,5",
@@ -65,7 +76,7 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
     if user_id not in records:
         records[user_id] = []
 
-    added = 0
+    added_chapters_list = []  # قائمة الفصول التي أضيفت فعلاً
     username = interaction.user.name
     for idx, ch in enumerate(paid_chapters):
         work_type = filtered_types[idx]
@@ -82,8 +93,9 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
             "timestamp": datetime.utcnow().isoformat(),
             "username": username
         })
-        added += 1
+        added_chapters_list.append(ch)
 
+    added = len(added_chapters_list)
     if added == 0:
         await interaction.response.send_message("⚠️ لم يتم إضافة أي فصل جديد (جميع الفصول إما مكررة أو مجانية).", ephemeral=True)
         return
@@ -91,24 +103,35 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
     await save_records(records)
     await update_stats()
 
+    # بناء التضمين المحسن
     embed = make_embed("finance", "🧾 إيصال تسجيل العمل", "تمت معالجة عملية التسجيل بنجاح.", interaction, interaction.user)
+    embed.color = discord.Color.gold()  # لمسة جمالية
+    embed.set_footer(text="💼 نظام تسجيل الأعمال", icon_url=interaction.client.user.display_avatar.url)
+    embed.timestamp = datetime.utcnow()
+
     embed.add_field(name="👤 العضو", value=interaction.user.mention, inline=True)
     embed.add_field(name="📖 العمل", value=العمل, inline=True)
-    embed.add_field(name="✅ الفصول المسجلة", value=str(added), inline=True)
+
+    # عرض قائمة الفصول المضافة ثم العدد
+    chapters_str = ", ".join(str(ch) for ch in added_chapters_list)
+    embed.add_field(name="📋 الفصول المضافة", value=chapters_str, inline=False)
+    embed.add_field(name="🔢 إجمالي الفصول", value=str(added), inline=True)
+
     if free_count > 0:
         embed.add_field(name="⏭️ فصول مجانية تم تجاهلها", value=str(free_count), inline=True)
+
     if len(set(filtered_types)) == 1:
-        embed.add_field(name="**🛠️ التخصص**", value=filtered_types[0], inline=True)
+        embed.add_field(name="🛠️ التخصص", value=filtered_types[0], inline=True)
         total_amount = added * PRICES[filtered_types[0]]
     else:
         total_amount = sum(PRICES[t] for t in filtered_types)
         types_summary = "\n".join([f"فصل {ch}: {t}" for ch, t in zip(paid_chapters, filtered_types)])
-        embed.add_field(name="**🛠️ تفاصيل التخصصات**", value=types_summary, inline=False)
+        embed.add_field(name="🛠️ تفاصيل التخصصات", value=types_summary, inline=False)
     embed.add_field(name="💰 الإجمالي", value=f"{SETTINGS.get('currency', '$')}{total_amount:.2f}", inline=True)
     embed.add_field(name="📅 تاريخ العملية", value=datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"), inline=True)
     embed.add_field(name="📌 الحالة", value="مكتمل", inline=True)
     if ملاحظات:
-        embed.add_field(name="**📝 ملاحظات**", value=ملاحظات, inline=False)
+        embed.add_field(name="📝 ملاحظات", value=ملاحظات, inline=False)
 
     await interaction.response.send_message(embed=embed)
 
@@ -401,7 +424,3 @@ async def analysis(ctx, *, text=None):
             await ctx.author.send(f"🔔 تنبيه: إجمالي شغلك وصل إلى {SETTINGS.get('currency', '$')}{total_user_amount:.2f}.")
         except:
             pass
-
-# ----------------------------------------------------------------------
-# Delete commands
-# ----------------------------------------------------------------------
