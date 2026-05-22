@@ -353,7 +353,7 @@ def make_embed(kind: str, title: str, description: str = "", interaction: discor
     emb = discord.Embed(title=title, description=description, color=EMBED_COLORS.get(kind, discord.Color.blurple()))
     if member:
         emb.set_thumbnail(url=member.display_avatar.url)
-    footer = "Work Bot • واجهة موحدة"
+    footer = "By ZEUS • TEAM Cookies"
     if interaction:
         footer += f" • {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
     emb.set_footer(text=footer)
