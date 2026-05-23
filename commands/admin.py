@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 import pandas as pd
 from io import BytesIO
 import discord
@@ -6,39 +7,26 @@ from discord import app_commands
 from state import bot
 from helpers.core import *
 from tasks.lifecycle import work_autocomplete, specialty_autocomplete
-@bot.tree.command(name="تصدير", description="تصدير كل البيانات إلى Excel")
+
+@bot.tree.command(name="تصدير", description="تصدير كل البيانات إلى JSON (للعضو المخصص فقط)")
 @app_commands.checks.cooldown(1, 10, key=lambda i: (i.user.id, i.command.qualified_name))
 async def export_excel(interaction: discord.Interaction):
-    if not is_admin(interaction):
-        await log_unauthorized(interaction.user.id, "تصدير")
-        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+    # السماح فقط لعضو واحد محدد بمعرفه
+    if interaction.user.id != 656783724662226963:
+        await interaction.response.send_message("❌ غير مصرح لك باستخدام هذا الأمر.", ephemeral=True)
         return
+
     records = await load_records()
-    rows = []
-    for user_id, entries in records.items():
-        user = interaction.guild.get_member(int(user_id))
-        username = user.display_name if user else user_id
-        for entry in entries:
-            rows.append({
-                "اسم العضو": username,
-                "معرف العضو": user_id,
-                "العمل": entry.get("work_name"),
-                "الفصل": entry.get("chapter"),
-                "التخصص": entry.get("work_type"),
-                "المبلغ": entry.get("total"),
-                "ملاحظات": entry.get("notes"),
-                "التاريخ": entry.get("timestamp", "")
-            })
-    df = pd.DataFrame(rows)
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name="الشغل")
+    data = json.dumps(records, ensure_ascii=False, indent=2)
+    buffer = BytesIO(data.encode('utf-8'))
     buffer.seek(0)
-    await interaction.response.send_message(file=discord.File(buffer, filename="work_report.xlsx"))
+    await interaction.response.send_message(
+        file=discord.File(buffer, filename=f"backup_{datetime.utcnow().date()}.json")
+    )
 
 @bot.tree.command(name="اعدادات", description="إعدادات البوت (للمشرفين)")
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
-async def bot_settings(interaction: discord.Interaction, العملة: str = None, قناة_الإشعارات: discord.TextChannel = None, قناة_النسخ: discord.TextChannel = None, حد_التنبيه: float = None):
+async def bot_settings(interaction: discord.Interaction, العملة: str = None, قناة_الإشعارات: discord.TextChannel = None, حد_التنبيه: float = None):
     if not is_admin(interaction):
         await log_unauthorized(interaction.user.id, "اعدادات")
         await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
@@ -47,8 +35,6 @@ async def bot_settings(interaction: discord.Interaction, العملة: str = Non
         SETTINGS["currency"] = العملة
     if قناة_الإشعارات:
         SETTINGS["notify_channel_id"] = قناة_الإشعارات.id
-    if قناة_النسخ:
-        SETTINGS["daily_backup_channel_id"] = قناة_النسخ.id
     if حد_التنبيه is not None:
         SETTINGS["alert_threshold"] = حد_التنبيه
     await save_settings(SETTINGS)
