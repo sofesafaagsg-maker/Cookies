@@ -90,7 +90,7 @@ class HelpView(discord.ui.View):
 async def help_slash(interaction: discord.Interaction):
     # إنشاء بطاقة ترحيبية أساسية
     embed = discord.Embed(
-        title="📌 مركز التحكم والمساعدة",
+            title="كوكيز تراكر 🍪",
         description=(
             f" أهلاً بك يا جميل {interaction.user.mention} في بوت إدارة فلوس فريق كوكيز الرائع 👀🔥.\n\n"
             "اضغط على القائمة المنسدلة في الأسفل للتنقل بين قوائم الأوامر المتاحة ومعرفة طريقة الاستخدام."
@@ -99,7 +99,7 @@ async def help_slash(interaction: discord.Interaction):
     )
     embed.add_field(name="👥 أوامر الأعضاء", value="استعراض أوامر تسجيل الفصول وكشوفات الحساب الشخصية.", inline=True)
     embed.add_field(name="⚙️ أوامر الإدارة", value="استعراض أدوات المشرفين، إدارة الاعمال والتحكم المالي.", inline=True)
-    embed.set_footer(text="بُوت إدارة المستحقات • صُنع بكل حب")
+            embed.set_footer(text="🤓 بُوت زيوس • صُنع بكل حب")
 
     # إضافة صورة البوت في جهة اليمين (Thumbnail) للرسالة الأولى
     embed.set_thumbnail(url=interaction.client.user.display_avatar.url)
