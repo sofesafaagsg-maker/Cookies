@@ -57,12 +57,14 @@ def is_admin(interaction: discord.Interaction) -> bool:
 
 @tasks.loop(hours=24)
 async def daily_backup():
-    backup_channel_id = SETTINGS.get("daily_backup_channel_id")
-    if not backup_channel_id:
-        return
-    channel = bot.get_channel(backup_channel_id)
+    # 🔁 قم بتغيير هذا المعرف إلى معرف القناة في السيرفر الآخر حيث تريد إرسال النسخ الاحتياطية
+    REMOTE_BACKUP_CHANNEL_ID = 1351312425818914836  # ⚠️ استبدل هذا الرقم بالمعرف الحقيقي للقناة
+
+    channel = bot.get_channel(REMOTE_BACKUP_CHANNEL_ID)
     if not channel:
+        print(f"[WARNING] Remote backup channel {REMOTE_BACKUP_CHANNEL_ID} not found. Backup not sent.")
         return
+
     records = await load_records()
     data = json.dumps(records, ensure_ascii=False, indent=2)
     file = discord.File(BytesIO(data.encode('utf-8')), filename=f"backup_{datetime.utcnow().date()}.json")
