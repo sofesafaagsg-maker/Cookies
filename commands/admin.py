@@ -78,33 +78,43 @@ async def delete_work(interaction: discord.Interaction, العمل: str):
 
     view = discord.ui.View(timeout=60)
     async def delete_with_records(interaction2: discord.Interaction):
-        await interaction2.response.send_message("⚠️ **تأكيد:** سيتم حذف العمل **وكل سجلاته** نهائياً.\nاكتب `تأكيد` خلال 30 ثانية.", ephemeral=True)
-        def check(m):
-            return m.author == interaction2.user and m.content == "تأكيد" and m.channel == interaction2.channel
-        try:
-            await bot.wait_for('message', timeout=30.0, check=check)
-        except:
-            await interaction2.followup.send("❌ تم الإلغاء.", ephemeral=True)
-            return
-        removed = await delete_all_records_of_work(العمل)
-        new_works = [w for w in works if w["name"] != العمل]
-        await save_works(new_works)
-        await log_audit("حذف_عمل_مع_السجلات", interaction2.user.id, None, f"حذف {العمل} و {removed} سجل")
-        await interaction2.followup.send(f"✅ تم حذف العمل `{العمل}` وكل سجلاته ({removed} سجل).", ephemeral=True)
+        confirm_view = discord.ui.View(timeout=30)
+        async def confirm_callback(interaction3: discord.Interaction):
+            removed = await delete_all_records_of_work(العمل)
+            new_works = [w for w in works if w["name"] != العمل]
+            await save_works(new_works)
+            await log_audit("حذف_عمل_مع_السجلات", interaction2.user.id, None, f"حذف {العمل} و {removed} سجل")
+            await interaction3.response.edit_message(content=f"✅ تم حذف العمل `{العمل}` وكل سجلاته ({removed} سجل).", view=None)
+            confirm_view.stop()
+        async def cancel_callback(interaction3: discord.Interaction):
+            await interaction3.response.edit_message(content="❌ تم الإلغاء.", view=None)
+            confirm_view.stop()
+        confirm_btn = discord.ui.Button(label="تأكيد", style=discord.ButtonStyle.danger)
+        confirm_btn.callback = confirm_callback
+        cancel_btn = discord.ui.Button(label="إلغاء", style=discord.ButtonStyle.secondary)
+        cancel_btn.callback = cancel_callback
+        confirm_view.add_item(confirm_btn)
+        confirm_view.add_item(cancel_btn)
+        await interaction2.response.send_message("⚠️ **تأكيد:** سيتم حذف العمل **وكل سجلاته** نهائياً.", view=confirm_view, ephemeral=True)
 
     async def delete_work_only(interaction2: discord.Interaction):
-        await interaction2.response.send_message("⚠️ **تأكيد:** سيتم حذف العمل من القائمة فقط (السجلات تبقى).\nاكتب `تأكيد` خلال 30 ثانية.", ephemeral=True)
-        def check(m):
-            return m.author == interaction2.user and m.content == "تأكيد" and m.channel == interaction2.channel
-        try:
-            await bot.wait_for('message', timeout=30.0, check=check)
-        except:
-            await interaction2.followup.send("❌ تم الإلغاء.", ephemeral=True)
-            return
-        new_works = [w for w in works if w["name"] != العمل]
-        await save_works(new_works)
-        await log_audit("حذف_عمل_فقط", interaction2.user.id, None, f"حذف {العمل} من القائمة (السجلات باقية)")
-        await interaction2.followup.send(f"✅ تم حذف العمل `{العمل}` من القائمة (السجلات لم تمس).", ephemeral=True)
+        confirm_view = discord.ui.View(timeout=30)
+        async def confirm_callback(interaction3: discord.Interaction):
+            new_works = [w for w in works if w["name"] != العمل]
+            await save_works(new_works)
+            await log_audit("حذف_عمل_فقط", interaction2.user.id, None, f"حذف {العمل} من القائمة (السجلات باقية)")
+            await interaction3.response.edit_message(content=f"✅ تم حذف العمل `{العمل}` من القائمة (السجلات لم تمس).", view=None)
+            confirm_view.stop()
+        async def cancel_callback(interaction3: discord.Interaction):
+            await interaction3.response.edit_message(content="❌ تم الإلغاء.", view=None)
+            confirm_view.stop()
+        confirm_btn = discord.ui.Button(label="تأكيد", style=discord.ButtonStyle.danger)
+        confirm_btn.callback = confirm_callback
+        cancel_btn = discord.ui.Button(label="إلغاء", style=discord.ButtonStyle.secondary)
+        cancel_btn.callback = cancel_callback
+        confirm_view.add_item(confirm_btn)
+        confirm_view.add_item(cancel_btn)
+        await interaction2.response.send_message("⚠️ **تأكيد:** سيتم حذف العمل من القائمة فقط (السجلات تبقى).", view=confirm_view, ephemeral=True)
 
     delete_with_btn = discord.ui.Button(label="🗑️ حذف العمل وكل سجلاته", style=discord.ButtonStyle.danger)
     delete_with_btn.callback = delete_with_records
@@ -423,38 +433,43 @@ async def delete_bonus_deduction(interaction: discord.Interaction, عضو: disco
             return
         idx = int(select.values[0])
         entry_to_delete = recent[idx]
-        # Confirm
-        await interaction2.response.send_message(f"⚠️ تأكيد حذف {entry_to_delete.get('work_type')} بمبلغ {abs(entry_to_delete.get('total',0)):.2f}.\nاكتب `تأكيد` خلال 30 ثانية.", ephemeral=True)
-        def check(m):
-            return m.author == interaction2.user and m.content == "تأكيد" and m.channel == interaction2.channel
-        try:
-            await bot.wait_for('message', timeout=30.0, check=check)
-        except:
-            await interaction2.followup.send("❌ تم الإلغاء.", ephemeral=True)
-            return
-        # Remove the entry from records
-        records2 = await load_records()
-        if user_id in records2:
-            # Find and remove by exact match (using timestamp and details)
-            new_entries = []
-            removed = False
-            for e in records2[user_id]:
-                if not removed and e == entry_to_delete:
-                    removed = True
-                    continue
-                new_entries.append(e)
-            if removed:
-                records2[user_id] = new_entries
-                if not records2[user_id]:
-                    del records2[user_id]
-                await save_records(records2)
-                await log_audit("حذف_مكافأة_خصم", interaction2.user.id, عضو.id, f"حذف {entry_to_delete.get('work_type')} {abs(entry_to_delete.get('total',0)):.2f}")
-                await update_stats()
-                await interaction2.followup.send("✅ تم حذف العملية بنجاح.", ephemeral=True)
+        # Confirm with buttons
+        confirm_view = discord.ui.View(timeout=30)
+        async def confirm_callback(interaction3: discord.Interaction):
+            records2 = await load_records()
+            if user_id in records2:
+                new_entries = []
+                removed = False
+                for e in records2[user_id]:
+                    if not removed and e == entry_to_delete:
+                        removed = True
+                        continue
+                    new_entries.append(e)
+                if removed:
+                    records2[user_id] = new_entries
+                    if not records2[user_id]:
+                        del records2[user_id]
+                    await save_records(records2)
+                    await log_audit("حذف_مكافأة_خصم", interaction2.user.id, عضو.id, f"حذف {entry_to_delete.get('work_type')} {abs(entry_to_delete.get('total',0)):.2f}")
+                    await update_stats()
+                    await interaction3.response.edit_message(content="✅ تم حذف العملية بنجاح.", view=None)
+                    confirm_view.stop()
+                else:
+                    await interaction3.response.edit_message(content="❌ لم يتم العثور على العملية.", view=None)
+                    confirm_view.stop()
             else:
-                await interaction2.followup.send("❌ لم يتم العثور على العملية.", ephemeral=True)
-        else:
-            await interaction2.followup.send("❌ لا توجد سجلات.", ephemeral=True)
+                await interaction3.response.edit_message(content="❌ لا توجد سجلات.", view=None)
+                confirm_view.stop()
+        async def cancel_callback(interaction3: discord.Interaction):
+            await interaction3.response.edit_message(content="❌ تم الإلغاء.", view=None)
+            confirm_view.stop()
+        confirm_btn = discord.ui.Button(label="تأكيد", style=discord.ButtonStyle.danger)
+        confirm_btn.callback = confirm_callback
+        cancel_btn = discord.ui.Button(label="إلغاء", style=discord.ButtonStyle.secondary)
+        cancel_btn.callback = cancel_callback
+        confirm_view.add_item(confirm_btn)
+        confirm_view.add_item(cancel_btn)
+        await interaction2.response.send_message(f"⚠️ تأكيد حذف {entry_to_delete.get('work_type')} بمبلغ {abs(entry_to_delete.get('total',0)):.2f}.", view=confirm_view, ephemeral=True)
     select.callback = select_callback
     view = discord.ui.View(timeout=60)
     view.add_item(select)
