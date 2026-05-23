@@ -36,9 +36,9 @@ class HelpView(discord.ui.View):
 
         if value == "home":
             embed = discord.Embed(
-                title="📌 مركز التحكم والمساعدة",
+                title="كوكيز تراكر 🍪",
                 description=(
-                    f" أهلاً بك يا جميل {interaction.user.mention} في بوت إدارة فلوس فريق كوكيز الرائع 👀🔥.\n\n"
+                    f" أهلاً بك يا جميل {interaction.user.mention} في بوت إدارة فلوس فريق كوكيز الرائع 🍪🥛.\n\n"
                     "اضغط على القائمة المنسدلة في الأسفل للتنقل بين قوائم الأوامر المتاحة ومعرفة طريقة الاستخدام."
                 ),
                 color=discord.Color.purple()
