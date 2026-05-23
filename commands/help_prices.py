@@ -20,7 +20,7 @@ class HelpView(discord.ui.View):
         return True
 
     # 1. زر العودة للرئيسية
-    @discord.ui.button(label="الصفحة الرئيسية", style=discord.Style.secondary, emoji="🏠", row=0)
+    @discord.ui.button(label="الصفحة الرئيسية", style=discord.ButtonStyle.secondary, emoji="🏠", row=0)
     async def home_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(
             title="📌 مركز التحكم والمساعدة",
