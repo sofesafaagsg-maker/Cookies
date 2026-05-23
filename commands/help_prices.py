@@ -35,15 +35,15 @@ class HelpView(discord.ui.View):
         embed.set_footer(text="🤓 بُوت زيوس • صُنع بكل حب")
         await interaction.response.edit_message(embed=embed, view=self)
 
-    # 2. زر أوامر الأعضاء
-    @discord.ui.button(label="أوامر الأعضاء", style=discord.Style.primary, emoji="👥", row=0)
+    # 2. زر أوامر الأعضاء (تم تصحيح الـ style هنا)
+    @discord.ui.button(label="أوامر الأعضاء", style=discord.ButtonStyle.primary, emoji="👥", row=0)
     async def members_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(
             title="👥 أوامر اعضاء الفريق",
             description="هذه الأوامر متاحة لجميع أعضاء الفريق لتسجيل وإدارة أعمالهم اليومية:",
             color=discord.Color.blue()
         )
-        embed.add_field(name="▸ `/تسجيل` أو `!تحليل`", value="تسجيل فصول جديدة (يدعم النطاقات مثل `1-5` `).", inline=False)
+        embed.add_field(name="▸ `/تسجيل` أو `!تحليل`", value="تسجيل فصول جديدة (يدعم النطاقات مثل `1-5`).", inline=False)
         embed.add_field(name="▸ `/أعمالي` أو `!أعمالي`", value="عرض كشف حسابك بالتفصيل (الفصول المنجزة والمبالغ المستحقة).", inline=False)
         embed.add_field(name="▸ `/شغل` أو `!شغل`", value="عرض كشف الحساب الخاص بعضو آخر عبر الإشارة إليه (منشن).", inline=False)
         embed.add_field(name="▸ `/اسعار` أو `!اسعار`", value="عرض قائمة أسعار التخصصات الحالية المعتمدة في السيرفر.", inline=False)
@@ -52,8 +52,8 @@ class HelpView(discord.ui.View):
         embed.set_footer(text="يمكنك الضغط على 'الصفحة الرئيسية' للعودة")
         await interaction.response.edit_message(embed=embed, view=self)
 
-    # 3. زر أوامر الإدارة
-    @discord.ui.button(label="أوامر الإدارة", style=discord.Style.danger, emoji="⚙️", row=0)
+    # 3. زر أوامر الإدارة (تم تصحيح الـ style هنا)
+    @discord.ui.button(label="أوامر الإدارة", style=discord.ButtonStyle.danger, emoji="⚙️", row=0)
     async def admin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(
             title="⚙️ أدوات التحكم والإدارة",
@@ -82,7 +82,7 @@ async def help_slash(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📌 مركز التحكم والمساعدة",
         description=(
-                f" أهلاً بك يا جميل {interaction.user.mention} في بوت إدارة فلوس فريق كوكيز الرائع 👀🔥.\n\n"
+            f" أهلاً بك يا جميل {interaction.user.mention} في بوت إدارة فلوس فريق كوكيز الرائع 👀🔥.\n\n"
             "اضغط على الأزرار في الأسفل للتنقل بين قوائم الأوامر المتاحة ومعرفة طريقة الاستخدام."
         ),
         color=discord.Color.purple()
