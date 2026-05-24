@@ -11,6 +11,11 @@ from database import collection, settings_collection, audit_collection, stats_co
 SETTINGS = {}
 PRICES = {}
 
+# ============================================================
+# القناة الثابتة التي تبقى مسموحة دائمًا (لا يمكن إزالتها عبر الأمر)
+FIXED_ALLOWED_CHANNEL = 1351312425818914836   # معرف القناة (رقم)
+# ============================================================
+
 def is_admin(interaction: discord.Interaction) -> bool:
     """Check if the user has administrator permissions in the guild."""
     if not interaction.guild:
@@ -118,7 +123,7 @@ async def save_records(records):
         print(f"[ERROR] save_records() - {e}")
 
 async def load_settings():
-    """Load settings from MongoDB."""
+    """Load settings from MongoDB, and ensure the fixed channel is always present."""
     try:
         doc = await settings_collection.find_one({"_id": "settings"})
         if doc:
@@ -129,9 +134,32 @@ async def load_settings():
                 doc["payment_hour"] = 0
                 doc["payment_reminder_24h_sent"] = False
                 doc["payment_day_sent"] = False
+            # التأكد من وجود القناة الثابتة في allowed_channels (حتى لو كانت فارغة)
+            allowed = doc.get("allowed_channels", [])
+            if isinstance(allowed, list):
+                # تحويل أي عنصر نصي رقمي إلى int للمقارنة الصحيحة
+                allowed = [
+                    int(x) if isinstance(x, str) and x.isdigit() else x 
+                    for x in allowed
+                ]
+                # إضافة القناة الثابتة إذا لم تكن موجودة
+                if FIXED_ALLOWED_CHANNEL not in allowed:
+                    allowed.append(FIXED_ALLOWED_CHANNEL)
+                doc["allowed_channels"] = allowed
+            else:
+                doc["allowed_channels"] = [FIXED_ALLOWED_CHANNEL]
             return doc
+        # إذا لم توجد إعدادات، ننشئ القائمة الافتراضية مع القناة الثابتة بالإضافة إلى DEFAULT_ALLOWED_CHANNELS
+        default_channels = []
+        for ch in DEFAULT_ALLOWED_CHANNELS:
+            if isinstance(ch, int) or (isinstance(ch, str) and ch.isdigit()):
+                default_channels.append(int(ch))
+            else:
+                default_channels.append(ch)
+        if FIXED_ALLOWED_CHANNEL not in default_channels:
+            default_channels.append(FIXED_ALLOWED_CHANNEL)
         return {
-            "allowed_channels": DEFAULT_ALLOWED_CHANNELS.copy(),
+            "allowed_channels": default_channels,
             "currency": "$",
             "notify_channel_id": None,
             "daily_backup_channel_id": None,
@@ -144,8 +172,16 @@ async def load_settings():
         }
     except Exception as e:
         print(f"[ERROR] load_settings() - {e}")
+        default_channels = []
+        for ch in DEFAULT_ALLOWED_CHANNELS:
+            if isinstance(ch, int) or (isinstance(ch, str) and ch.isdigit()):
+                default_channels.append(int(ch))
+            else:
+                default_channels.append(ch)
+        if FIXED_ALLOWED_CHANNEL not in default_channels:
+            default_channels.append(FIXED_ALLOWED_CHANNEL)
         return {
-            "allowed_channels": DEFAULT_ALLOWED_CHANNELS.copy(),
+            "allowed_channels": default_channels,
             "currency": "$",
             "notify_channel_id": None,
             "daily_backup_channel_id": None,
@@ -158,11 +194,26 @@ async def load_settings():
         }
 
 async def save_settings(settings):
-    """Save settings to MongoDB."""
+    """Save settings to MongoDB, but always force the fixed channel into allowed_channels."""
+    # عمل نسخة لتجنب تعديل الأصل مباشرة
+    settings_copy = settings.copy()
+    allowed = settings_copy.get("allowed_channels", [])
+    if isinstance(allowed, list):
+        # تحويل الأرقام النصية إلى int
+        allowed = [
+            int(x) if isinstance(x, str) and x.isdigit() else x 
+            for x in allowed
+        ]
+        # إضافة القناة الثابتة إذا لم تكن موجودة
+        if FIXED_ALLOWED_CHANNEL not in allowed:
+            allowed.append(FIXED_ALLOWED_CHANNEL)
+        settings_copy["allowed_channels"] = allowed
+    else:
+        settings_copy["allowed_channels"] = [FIXED_ALLOWED_CHANNEL]
     try:
         await settings_collection.update_one(
             {"_id": "settings"},
-            {"$set": settings},
+            {"$set": settings_copy},
             upsert=True
         )
     except Exception as e:
