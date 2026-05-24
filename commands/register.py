@@ -7,8 +7,26 @@ from state import bot
 from helpers.core import *
 from tasks.lifecycle import work_autocomplete
 
-# دالة autocomplete لحقل التخصصات
+# دالة autocomplete لحقل التخصصات - ديناميكية بناءً على العمل المختار
 async def specialization_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+    # محاولة قراءة العمل المختار من الحقل السابق
+    work_name = None
+    try:
+        work_name = interaction.namespace.العمل
+    except AttributeError:
+        pass
+
+    # إذا تم اختيار عمل وله تخصصات مخصصة، نعرضها فقط
+    if work_name:
+        work = await get_work(work_name)
+        if work and "custom_prices" in work and isinstance(work["custom_prices"], dict):
+            choices = []
+            for spec in work["custom_prices"].keys():
+                if current.lower() in spec.lower():
+                    choices.append(app_commands.Choice(name=spec[:100], value=spec))
+            return choices[:25]
+
+    # وإلا نعرض التخصصات العامة
     choices = [
         app_commands.Choice(name=t, value=t)
         for t in PRICES.keys()
@@ -62,10 +80,23 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
         if ch in kept_set:
             filtered_types.append(mapped_types[idx])
 
-    for t in filtered_types:
-        if t not in PRICES:
-            await interaction.response.send_message(f"❌ التخصص `{t}` غير صحيح. التخصصات المتاحة: {', '.join(PRICES.keys())}", ephemeral=True)
-            return
+    # التحقق من صحة التخصصات: إذا العمل له تخصصات مخصصة، يجب أن تكون التخصصات المدخلة ضمنها
+    if "custom_prices" in work and isinstance(work["custom_prices"], dict):
+        allowed_specs = list(work["custom_prices"].keys())
+        for t in filtered_types:
+            if t not in allowed_specs:
+                await interaction.response.send_message(
+                    f"❌ التخصص `{t}` غير مسموح به في عمل `{العمل}`.\n"
+                    f"التخصصات المتاحة لهذا العمل: {', '.join(allowed_specs)}",
+                    ephemeral=True
+                )
+                return
+    else:
+        # إذا العمل ليس له تخصصات مخصصة، نتحقق من التخصصات العامة
+        for t in filtered_types:
+            if t not in PRICES:
+                await interaction.response.send_message(f"❌ التخصص `{t}` غير صحيح. التخصصات المتاحة: {', '.join(PRICES.keys())}", ephemeral=True)
+                return
 
     records = await load_records()
     user_id = str(interaction.user.id)
@@ -78,7 +109,8 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
         work_type = filtered_types[idx]
         if is_duplicate(records, user_id, العمل, ch, work_type):
             continue
-        total = PRICES[work_type]
+        # استخدام السعر المخصص للعمل إن وجد، وإلا السعر العام
+        total = await get_specialty_price(العمل, work_type)
         records[user_id].append({
             "work_name": العمل,
             "chapter": ch,
@@ -115,9 +147,9 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
 
     if len(set(filtered_types)) == 1:
         embed.add_field(name="🛠️ التخصص", value=filtered_types[0], inline=True)
-        total_amount = added * PRICES[filtered_types[0]]
+        total_amount = added * await get_specialty_price(العمل, filtered_types[0])
     else:
-        total_amount = sum(PRICES[t] for t in filtered_types)
+        total_amount = sum(await get_specialty_price(العمل, t) for t in filtered_types)
         types_summary = "\n".join([f"فصل {ch}: {t}" for ch, t in zip(paid_chapters, filtered_types)])
         embed.add_field(name="🛠️ تفاصيل التخصصات", value=types_summary, inline=False)
     embed.add_field(name="💰 الإجمالي", value=f"{SETTINGS.get('currency', '$')}{total_amount:.2f}", inline=True)
@@ -207,10 +239,23 @@ async def register_for_member(
         if ch in kept_set:
             filtered_types.append(mapped_types[idx])
 
-    for t in filtered_types:
-        if t not in PRICES:
-            await interaction.response.send_message(f"❌ التخصص `{t}` غير صحيح. التخصصات المسموحة: {', '.join(PRICES.keys())}", ephemeral=True)
-            return
+    # التحقق من صحة التخصصات: إذا العمل له تخصصات مخصصة، يجب أن تكون التخصصات المدخلة ضمنها
+    if "custom_prices" in work and isinstance(work["custom_prices"], dict):
+        allowed_specs = list(work["custom_prices"].keys())
+        for t in filtered_types:
+            if t not in allowed_specs:
+                await interaction.response.send_message(
+                    f"❌ التخصص `{t}` غير مسموح به في عمل `{العمل}`.\n"
+                    f"التخصصات المتاحة لهذا العمل: {', '.join(allowed_specs)}",
+                    ephemeral=True
+                )
+                return
+    else:
+        # إذا العمل ليس له تخصصات مخصصة، نتحقق من التخصصات العامة
+        for t in filtered_types:
+            if t not in PRICES:
+                await interaction.response.send_message(f"❌ التخصص `{t}` غير صحيح. التخصصات المسموحة: {', '.join(PRICES.keys())}", ephemeral=True)
+                return
 
     records = await load_records()
     user_id = str(عضو.id)
@@ -223,7 +268,8 @@ async def register_for_member(
         work_type = filtered_types[idx]
         if is_duplicate(records, user_id, العمل, ch, work_type):
             continue
-        total = PRICES[work_type]
+        # استخدام السعر المخصص للعمل إن وجد، وإلا السعر العام
+        total = await get_specialty_price(العمل, work_type)
         records[user_id].append({
             "work_name": العمل,
             "chapter": ch,
@@ -262,9 +308,9 @@ async def register_for_member(
 
     if len(set(filtered_types)) == 1:
         embed.add_field(name="🛠️ التخصص", value=filtered_types[0], inline=True)
-        total_amount = added * PRICES[filtered_types[0]]
+        total_amount = added * await get_specialty_price(العمل, filtered_types[0])
     else:
-        total_amount = sum(PRICES[t] for t in filtered_types)
+        total_amount = sum(await get_specialty_price(العمل, t) for t in filtered_types)
         types_summary = "\n".join([f"فصل {ch}: {t}" for ch, t in zip(paid_chapters, filtered_types)])
         embed.add_field(name="🛠️ تفاصيل التخصصات", value=types_summary, inline=False)
     embed.add_field(name="💰 الإجمالي", value=f"{SETTINGS.get('currency', '$')}{total_amount:.2f}", inline=True)
@@ -353,10 +399,22 @@ async def analysis(ctx, *, text=None):
         if ch in kept_set:
             filtered_types.append(mapped_types[idx])
 
-    for t in filtered_types:
-        if t not in PRICES:
-            await ctx.send(f"❌ التخصص `{t}` غير صحيح. التخصصات: {', '.join(PRICES.keys())}")
-            return
+    # التحقق من صحة التخصصات: إذا العمل له تخصصات مخصصة، يجب أن تكون التخصصات المدخلة ضمنها
+    if "custom_prices" in work and isinstance(work["custom_prices"], dict):
+        allowed_specs = list(work["custom_prices"].keys())
+        for t in filtered_types:
+            if t not in allowed_specs:
+                await ctx.send(
+                    f"❌ التخصص `{t}` غير مسموح به في عمل `{work_name}`.\n"
+                    f"التخصصات المتاحة لهذا العمل: {', '.join(allowed_specs)}"
+                )
+                return
+    else:
+        # إذا العمل ليس له تخصصات مخصصة، نتحقق من التخصصات العامة
+        for t in filtered_types:
+            if t not in PRICES:
+                await ctx.send(f"❌ التخصص `{t}` غير صحيح. التخصصات: {', '.join(PRICES.keys())}")
+                return
 
     records = await load_records()
     user_id = str(ctx.author.id)
@@ -369,7 +427,8 @@ async def analysis(ctx, *, text=None):
         work_type = filtered_types[idx]
         if is_duplicate(records, user_id, work_name, ch, work_type):
             continue
-        total = PRICES[work_type]
+        # استخدام السعر المخصص للعمل إن وجد، وإلا السعر العام
+        total = await get_specialty_price(work_name, work_type)
         records[user_id].append({
             "work_name": work_name,
             "chapter": ch,
@@ -409,9 +468,9 @@ async def analysis(ctx, *, text=None):
 
     if len(set(filtered_types)) == 1:
         embed.add_field(name="🛠️ التخصص", value=filtered_types[0], inline=True)
-        total_amount = added * PRICES[filtered_types[0]]
+        total_amount = added * await get_specialty_price(work_name, filtered_types[0])
     else:
-        total_amount = sum(PRICES[t] for t in filtered_types)
+        total_amount = sum(await get_specialty_price(work_name, t) for t in filtered_types)
         types_summary = "\n".join([f"فصل {ch}: {t}" for ch, t in zip(paid_chapters, filtered_types)])
         embed.add_field(name="🛠️ تفاصيل التخصصات", value=types_summary, inline=False)
     embed.add_field(name="💰 الإجمالي", value=f"{SETTINGS.get('currency', '$')}{total_amount:.2f}", inline=True)
