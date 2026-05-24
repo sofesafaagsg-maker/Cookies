@@ -7,22 +7,25 @@ from helpers.core import *
 from helpers.core import make_embed
 from views.paginators import WorkDetailsView, WorksPaginator, get_works_info
 
-# ═══════════════════════════════════════════════
-# 🧩 عرض محسّن لعمل (شغل/أعمالي) مع قائمة اختيار
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
+# 🎨 كلاس العرض الاحترافي مع صورة العضو الكبيرة
+# ═══════════════════════════════════════════════════
 class WorkSummarySelectView(discord.ui.View):
-    def __init__(self, works, bonuses, deductions, target_name, user_id, currency,
-                 title_prefix="📊 ملخص شغل"):
+    def __init__(self, works, bonuses, deductions, member: discord.Member, user_id,
+                 currency, title_prefix="📊 ملخص شغل"):
         super().__init__(timeout=300)
-        self.works = works            # dict: اسم_العمل -> قائمة الفصول
+        self.works = works
         self.bonuses = bonuses
         self.deductions = deductions
-        self.target_name = target_name
+        self.member = member
         self.user_id = user_id
         self.currency = currency
         self.title_prefix = title_prefix
 
-        # إنشاء القائمة المنسدلة
+        # صورة العضو بجودة عالية
+        self.avatar_url = member.display_avatar.replace(size=256).url
+
+        # القائمة المنسدلة
         self.select_menu = discord.ui.Select(
             placeholder="اختر عملاً لعرض التفاصيل...",
             options=self._build_options()
@@ -32,7 +35,6 @@ class WorkSummarySelectView(discord.ui.View):
 
     def _build_options(self):
         options = []
-        # نقسم الأعمال أبجدياً ونأخذ أول 24 (لترك مكان للخيارات الخاصة)
         sorted_works = sorted(self.works.keys())
         for i, work_name in enumerate(sorted_works):
             if i >= 24:
@@ -46,7 +48,6 @@ class WorkSummarySelectView(discord.ui.View):
                     emoji="📖"
                 )
             )
-        # خيار المكافآت والخصومات إن وجدت
         if self.bonuses or self.deductions:
             options.append(
                 discord.SelectOption(
@@ -56,7 +57,6 @@ class WorkSummarySelectView(discord.ui.View):
                     emoji="⚖️"
                 )
             )
-        # خيار "عرض الكل" إذا تعددت الأعمال
         if len(self.works) > 1:
             options.append(
                 discord.SelectOption(
@@ -72,19 +72,15 @@ class WorkSummarySelectView(discord.ui.View):
         selected = interaction.data['values'][0]
         if selected == "__all__":
             embed = self.build_all_details_embed()
-            self._switch_to_back_mode(embed)
-            await interaction.response.edit_message(embed=embed, view=self)
         elif selected == "__bonuses__":
             embed = self.build_bonuses_details_embed()
-            self._switch_to_back_mode(embed)
-            await interaction.response.edit_message(embed=embed, view=self)
         else:
             embed = self.build_work_detail_embed(selected)
-            self._switch_to_back_mode(embed)
-            await interaction.response.edit_message(embed=embed, view=self)
+
+        self._switch_to_back_mode(embed)
+        await interaction.response.edit_message(embed=embed, view=self)
 
     async def back_callback(self, interaction: discord.Interaction):
-        # العودة إلى الملخص
         embed = self.build_summary_embed()
         self.clear_items()
         self.select_menu = discord.ui.Select(
@@ -101,7 +97,20 @@ class WorkSummarySelectView(discord.ui.View):
         back_btn.callback = self.back_callback
         self.add_item(back_btn)
 
-    # ───────── بناء الإمبيدات ─────────
+    # ─────── بناء الإمبيدات الجميلة ───────
+    def _base_embed(self, title, color):
+        embed = discord.Embed(
+            title=title,
+            color=color,
+            timestamp=datetime.utcnow()
+        )
+        embed.set_author(
+            name=self.member.display_name,
+            icon_url=self.member.display_avatar.url
+        )
+        embed.set_thumbnail(url=self.avatar_url)
+        return embed
+
     def build_summary_embed(self):
         gross = sum(sum(e.get("total", 0) for e in entries)
                     for entries in self.works.values())
@@ -111,9 +120,9 @@ class WorkSummarySelectView(discord.ui.View):
         total_works = len(self.works)
         total_chapters = sum(len(entries) for entries in self.works.values())
 
-        embed = discord.Embed(
-            title=f"{self.title_prefix} {self.target_name}",
-            color=discord.Color.gold()
+        embed = self._base_embed(
+            f"{self.title_prefix} {self.member.display_name}",
+            discord.Color.gold()
         )
         embed.add_field(name="📁 عدد الأعمال", value=str(total_works), inline=True)
         embed.add_field(name="📑 إجمالي الفصول", value=str(total_chapters), inline=True)
@@ -123,7 +132,7 @@ class WorkSummarySelectView(discord.ui.View):
         if total_deduct:
             embed.add_field(name="🔻 إجمالي الخصومات", value=f"{self.currency}{total_deduct:.2f}", inline=True)
         embed.add_field(name="💵 الصافي النهائي", value=f"{self.currency}{net:.2f}", inline=False)
-        embed.set_footer(text="اختر عملاً من القائمة لعرض التفاصيل.")
+        embed.set_footer(text="اختر عملاً من القائمة لعرض التفاصيل")
         return embed
 
     def build_work_detail_embed(self, work_name):
@@ -134,20 +143,18 @@ class WorkSummarySelectView(discord.ui.View):
         for e in entries:
             t = e.get("work_type", "غير محدد")
             types_count[t] = types_count.get(t, 0) + 1
-        type_str = ", ".join(f"**{k.replace('_',' ').title()}:** {v}"
-                             for k, v in types_count.items() if v > 0)
-
-        embed = discord.Embed(
-            title=f"📖 {work_name}",
-            description=f"تفاصيل العمل لـ {self.target_name}",
-            color=discord.Color.blue()
+        type_str = ", ".join(
+            f"**{k.replace('_',' ').title()}:** {v}"
+            for k, v in types_count.items() if v > 0
         )
+
+        embed = self._base_embed(f"📖 {work_name}", discord.Color.blue())
         embed.add_field(name="📑 عدد الفصول", value=str(count), inline=True)
         embed.add_field(name="💰 المجموع", value=f"{self.currency}{total:.2f}", inline=True)
         if type_str:
             embed.add_field(name="📊 التخصصات", value=type_str, inline=False)
 
-        # قائمة الفصول (مرتبة)
+        # قائمة الفصول
         lines = []
         for i, e in enumerate(entries, 1):
             ch = e.get("chapter", "؟")
@@ -162,12 +169,14 @@ class WorkSummarySelectView(discord.ui.View):
             if len(text) > 1024:
                 text = "\n".join(lines[:10]) + f"\n... والمزيد ({len(lines)-10} فصل إضافي)"
             embed.add_field(name="📋 قائمة الفصول", value=text, inline=False)
+
+        embed.set_footer(text=f"تفاصيل العمل • {datetime.utcnow().strftime('%Y-%m-%d')}")
         return embed
 
     def build_all_details_embed(self):
-        embed = discord.Embed(
-            title=f"📚 جميع الفصول لـ {self.target_name}",
-            color=discord.Color.purple()
+        embed = self._base_embed(
+            f"📚 جميع الفصول لـ {self.member.display_name}",
+            discord.Color.purple()
         )
         for work_name, entries in self.works.items():
             total = sum(e.get("total", 0) for e in entries)
@@ -182,13 +191,11 @@ class WorkSummarySelectView(discord.ui.View):
             if len(entries) > 5:
                 preview.append("... والمزيد")
             embed.add_field(name=prefix, value="\n".join(preview), inline=False)
+        embed.set_footer(text="عرض إجمالي لجميع الأعمال")
         return embed
 
     def build_bonuses_details_embed(self):
-        embed = discord.Embed(
-            title="⚖️ المكافآت والخصومات",
-            color=discord.Color.orange()
-        )
+        embed = self._base_embed("⚖️ المكافآت والخصومات", discord.Color.orange())
         if self.bonuses:
             bon = "\n".join(
                 f"🎁 {e.get('chapter','مكافأة')}: {self.currency}{e.get('total',0):.2f} - {e.get('notes','')}"
@@ -206,6 +213,7 @@ class WorkSummarySelectView(discord.ui.View):
             embed.add_field(name="الخصومات", value=ded, inline=False)
         else:
             embed.add_field(name="الخصومات", value="لا يوجد", inline=False)
+        embed.set_footer(text="تفاصيل المكافآت والخصومات")
         return embed
 
 
@@ -321,15 +329,12 @@ async def my_works_slash(interaction: discord.Interaction):
     works, bonuses, deductions = _categorize_records(records[user_id])
     view = WorkSummarySelectView(
         works, bonuses, deductions,
-        target_name=interaction.user.display_name,
+        member=interaction.user,          # ⬅️ تمرير العضو للحصول على صورته
         user_id=user_id,
         currency=SETTINGS.get('currency', '$'),
         title_prefix="💼 اللوحة الشخصية •"
     )
     embed = view.build_summary_embed()
-    # تخصيص إضافي لرسالة أعمالي
-    embed.color = discord.Color.purple()
-    embed.set_footer(text="لوحة تحكم شخصية • اختر عملاً للتفاصيل")
     await interaction.response.send_message(embed=embed, view=view)
 
 
@@ -345,14 +350,12 @@ async def my_works_text(ctx):
     works, bonuses, deductions = _categorize_records(records[user_id])
     view = WorkSummarySelectView(
         works, bonuses, deductions,
-        target_name=ctx.author.display_name,
+        member=ctx.author,
         user_id=user_id,
         currency=SETTINGS.get('currency', '$'),
         title_prefix="💼 اللوحة الشخصية •"
     )
     embed = view.build_summary_embed()
-    embed.color = discord.Color.purple()
-    embed.set_footer(text="لوحة تحكم شخصية • اختر عملاً للتفاصيل")
     await ctx.send(embed=embed, view=view)
 
 
@@ -376,7 +379,7 @@ async def show_work_slash(interaction: discord.Interaction, member: discord.Memb
     works, bonuses, deductions = _categorize_records(records[user_id])
     view = WorkSummarySelectView(
         works, bonuses, deductions,
-        target_name=target.display_name,
+        member=target,                    # ⬅️ صورة العضو المستهدف
         user_id=user_id,
         currency=SETTINGS.get('currency', '$'),
         title_prefix="📊 ملخص شغل"
@@ -398,7 +401,7 @@ async def show_work_text(ctx, member: discord.Member = None):
     works, bonuses, deductions = _categorize_records(records[user_id])
     view = WorkSummarySelectView(
         works, bonuses, deductions,
-        target_name=member.display_name,
+        member=member,
         user_id=user_id,
         currency=SETTINGS.get('currency', '$'),
         title_prefix="📊 ملخص شغل"
