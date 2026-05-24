@@ -207,9 +207,8 @@ async def stats(interaction: discord.Interaction):
     
     # تنسيق قسم التخصصات بشكل منظم داخل صندوق كود
     if type_counts:
-        type_lines = "\n".join([f"▫️ {k.replace('_',' ').title()}: {v} فصل" for k, v in type_counts.items()])
-        embed.add_field(name="⚡ تفصيل الإنتاجية حسب التخصص", value=f"```md\n{type_lines}
-```", inline=False)
+    type_lines = "\n".join([f"▫️ {k.replace('_',' ').title()}: {v} فصل" for k, v in type_counts.items()])
+    embed.add_field(name="⚡ تفصيل الإنتاجية حسب التخصص", value=f"```md\n{type_lines}```", inline=False)
 
     # فترات العمل الزمني الموحد
     embed.add_field(name="📅 الحصاد اليومي", value=f"📝 فصول: `{daily['entries']}`\n💵 بمبلغ: `{currency}{daily['amount']:.2f}`", inline=True)
