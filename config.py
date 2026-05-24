@@ -25,7 +25,8 @@ if MONGODB_URI is None:
     raise ValueError("MONGODB_URI is missing from .env file")
 
 # Default allowed channels (will be loaded from DB)
-DEFAULT_ALLOWED_CHANNELS = ["تسجيــــــــل-اعمال〢💵"]
+# يمكن أن تحتوي على أسماء قنوات (نص) أو معرفات رقمية
+DEFAULT_ALLOWED_CHANNELS = ["تسجيــــــــل-اعمال〢💵", 1351312425818914836]
 
 # Initial specialties definition (will be stored in settings)
 DEFAULT_SPECIALTIES = {
