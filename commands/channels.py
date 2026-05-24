@@ -9,18 +9,37 @@ from helpers.core import (
     load_settings, save_settings, load_records, save_records, load_works, save_works
 )
 from tasks.lifecycle import is_admin
+
 @bot.tree.command(name="تحديد_قنوات", description="تحديد القنوات المسموحة (قناتين كحد أقصى) - للإدارة فقط")
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
 async def set_allowed_channels_slash(interaction: discord.Interaction,
-                                     channel1: discord.TextChannel,
-                                     channel2: discord.TextChannel = None):
+                                     channel1: str,
+                                     channel2: str = None):
     if not is_admin(interaction):
         await log_unauthorized(interaction.user.id, "تحديد_قنوات")
         await interaction.response.send_message("❌ ما عندك صلاحية تستخدم هذا الأمر.", ephemeral=True)
         return
-    channels = [channel1.name]
+
+    def resolve_channel(input_str: str):
+        # Try to parse as mention <#123456>
+        if input_str.startswith('<#') and input_str.endswith('>'):
+            channel_id = int(input_str[2:-1])
+            ch = bot.get_channel(channel_id)
+            if ch:
+                return ch.name
+        # Try as numeric ID
+        elif input_str.isdigit():
+            ch = bot.get_channel(int(input_str))
+            if ch:
+                return ch.name
+        # Otherwise treat as channel name (fallback, may not exist in current guild but we store it anyway)
+        return input_str
+
+    ch1_name = resolve_channel(channel1)
+    channels = [ch1_name]
     if channel2:
-        channels.append(channel2.name)
+        ch2_name = resolve_channel(channel2)
+        channels.append(ch2_name)
     channels = list(dict.fromkeys(channels))[:2]
     SETTINGS["allowed_channels"] = channels
     await save_settings(SETTINGS)
@@ -33,6 +52,17 @@ async def set_allowed_channels_slash(interaction: discord.Interaction,
 @commands.cooldown(1, 5, commands.BucketType.user)
 async def set_allowed_channels_text(ctx, channel1: str, channel2: str = None):
     def extract_channel_name(input_str):
+        # Try to resolve as mention or ID first (cross-server)
+        if input_str.startswith('<#') and input_str.endswith('>'):
+            channel_id = int(input_str[2:-1])
+            ch = bot.get_channel(channel_id)
+            if ch:
+                return ch.name
+        elif input_str.isdigit():
+            ch = bot.get_channel(int(input_str))
+            if ch:
+                return ch.name
+        # Fallback to local guild channel lookup by name or mention
         if input_str.startswith('<#') and input_str.endswith('>'):
             channel_id = int(input_str[2:-1])
             channel = ctx.guild.get_channel(channel_id)
