@@ -7,8 +7,9 @@ from helpers.core import *
 from helpers.core import make_embed
 from views.paginators import WorkDetailsView, WorksPaginator, get_works_info
 
+
 # ═══════════════════════════════════════════════════
-# 🎨 كلاس العرض الاحترافي مع صورة العضو الكبيرة
+# 🎨 كلاس عرض الأعمال (مع صورة العضو)
 # ═══════════════════════════════════════════════════
 class WorkSummarySelectView(discord.ui.View):
     def __init__(self, works, bonuses, deductions, member: discord.Member, user_id,
@@ -21,7 +22,6 @@ class WorkSummarySelectView(discord.ui.View):
         self.user_id = user_id
         self.currency = currency
         self.title_prefix = title_prefix
-
         self.avatar_url = member.display_avatar.replace(size=256).url
 
         self.select_menu = discord.ui.Select(
@@ -51,7 +51,7 @@ class WorkSummarySelectView(discord.ui.View):
                 discord.SelectOption(
                     label="المكافآت والخصومات",
                     value="__bonuses__",
-                    description="عرض تفاصيل المكافآت والخصومات",
+                    description="تفاصيل المكافآت والخصومات",
                     emoji="⚖️"
                 )
             )
@@ -60,7 +60,7 @@ class WorkSummarySelectView(discord.ui.View):
                 discord.SelectOption(
                     label="عرض الكل",
                     value="__all__",
-                    description="عرض جميع الفصول مجمعة",
+                    description="جميع الفصول مجمعة",
                     emoji="📚"
                 )
             )
@@ -210,8 +210,160 @@ class WorkSummarySelectView(discord.ui.View):
         return embed
 
 
+# ═══════════════════════════════════════════════════
+# 📊 عارض الإحصائيات التفاعلي (أزرار التنقل)
+# ═══════════════════════════════════════════════════
+class StatsView(discord.ui.View):
+    def __init__(self, stat_doc, bot_member, currency):
+        super().__init__(timeout=180)
+        self.stat_doc = stat_doc
+        self.bot_member = bot_member
+        self.currency = currency
+        self.avatar_url = bot_member.display_avatar.replace(size=256).url
+        self.current_page = "overview"
+
+    # --- بناء كل إمبيد حسب الزر ---
+    def _base_embed(self, title, color):
+        embed = discord.Embed(title=title, color=color, timestamp=datetime.utcnow())
+        embed.set_author(
+            name=self.bot_member.display_name,
+            icon_url=self.bot_member.display_avatar.url
+        )
+        embed.set_thumbnail(url=self.avatar_url)
+        return embed
+
+    def _overview_embed(self):
+        total_entries = self.stat_doc.get("total_entries", 0)
+        total_amount = self.stat_doc.get("total_amount", 0)
+        embed = self._base_embed("📊 لوحة الإحصائيات • النظرة العامة", discord.Color.teal())
+        embed.add_field(
+            name="📄 إجمالي الفصول",
+            value=f"```py\n{total_entries}```",
+            inline=True
+        )
+        embed.add_field(
+            name="💰 إجمالي المبالغ",
+            value=f"```css\n{self.currency}{total_amount:,.2f}```",
+            inline=True
+        )
+        embed.add_field(
+            name="👥 الأعضاء النشطون",
+            value=f"```yaml\n{len(self.stat_doc.get('top_members', []))}```",
+            inline=True
+        )
+        embed.set_footer(text="استخدم الأزرار أدناه لاستعراض الأقسام")
+        return embed
+
+    def _types_embed(self):
+        total_entries = self.stat_doc.get("total_entries", 0)
+        type_counts = self.stat_doc.get("type_counts", {})
+        embed = self._base_embed("📊 تفصيل التخصصات", discord.Color.blue())
+        type_lines = ""
+        for k, v in type_counts.items():
+            pct = (v / total_entries * 100) if total_entries else 0
+            bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+            type_lines += f"**{k.replace('_',' ').title()}**: `{v:>4}` {bar}\n"
+        if type_lines:
+            embed.add_field(name="📊 التوزيع", value=type_lines, inline=False)
+        else:
+            embed.description = "لا توجد بيانات تخصصات بعد."
+        embed.set_footer(text="النسب المئوية مقربة • شريط التقدم يمثل النسبة")
+        return embed
+
+    def _time_embed(self):
+        daily = self.stat_doc.get("daily", {"entries":0, "amount":0})
+        weekly = self.stat_doc.get("weekly", {"entries":0, "amount":0})
+        monthly = self.stat_doc.get("monthly", {"entries":0, "amount":0})
+        embed = self._base_embed("📅 النظرة الزمنية", discord.Color.purple())
+        embed.add_field(
+            name="📅 اليوم",
+            value=f"📑 `{daily['entries']}` فصل\n💰 `{self.currency}{daily['amount']:,.2f}`",
+            inline=True
+        )
+        embed.add_field(
+            name="📆 الأسبوع",
+            value=f"📑 `{weekly['entries']}` فصل\n💰 `{self.currency}{weekly['amount']:,.2f}`",
+            inline=True
+        )
+        embed.add_field(
+            name="📅 الشهر",
+            value=f"📑 `{monthly['entries']}` فصل\n💰 `{self.currency}{monthly['amount']:,.2f}`",
+            inline=True
+        )
+        embed.set_footer(text="إحصائيات تراكمية لنفس اليوم / الأسبوع / الشهر")
+        return embed
+
+    async def _top_embed(self, interaction):
+        top_members = self.stat_doc.get("top_members", [])
+        embed = self._base_embed("🏆 أفضل الأعضاء", discord.Color.gold())
+        if not top_members:
+            embed.description = "لا يوجد بيانات كافية بعد."
+            return embed
+
+        records = await load_records()
+        medals = ["🥇", "🥈", "🥉"]
+        top_list = ""
+        for i, (uid, stats_data) in enumerate(top_members[:5], 1):
+            uid_int = int(uid)
+            username_hint = None
+            if uid in records:
+                for e in records[uid]:
+                    if e.get("username"):
+                        username_hint = e["username"]
+                        break
+            display = format_member_display(interaction.guild, uid_int, username_hint)
+            medal = medals[i-1] if i <= 3 else "🏅"
+            top_list += (
+                f"{medal} `{i}.` {display}\n"
+                f"┗ 💰 {stats_data['total_amount']:,.2f} {self.currency} | 📑 {stats_data['total_entries']} فصل\n"
+            )
+        embed.add_field(name="الأعلى تحقيقاً للمبالغ", value=top_list, inline=False)
+        embed.set_footer(text="الترتيب حسب إجمالي المبلغ")
+        return embed
+
+    # --- ربط الأزرار ---
+    @discord.ui.button(label="🏠 الرئيسية", style=discord.ButtonStyle.secondary, row=0)
+    async def overview_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = self._overview_embed()
+        self._highlight_button("overview")
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="📊 التخصصات", style=discord.ButtonStyle.secondary, row=0)
+    async def types_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = self._types_embed()
+        self._highlight_button("types")
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="⏳ زمني", style=discord.ButtonStyle.secondary, row=0)
+    async def time_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = self._time_embed()
+        self._highlight_button("time")
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="🏆 الأفضل", style=discord.ButtonStyle.secondary, row=0)
+    async def top_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = await self._top_embed(interaction)
+        self._highlight_button("top")
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    def _highlight_button(self, active_page):
+        self.current_page = active_page
+        # تغيير نمط الأزرار: النشط بلون أخضر، البقية رمادي
+        style_map = {
+            "overview": self.overview_btn,
+            "types": self.types_btn,
+            "time": self.time_btn,
+            "top": self.top_btn
+        }
+        for key, btn in style_map.items():
+            if key == active_page:
+                btn.style = discord.ButtonStyle.success
+            else:
+                btn.style = discord.ButtonStyle.secondary
+
+
 # ═══════════════════════════════════════════════
-# 1️⃣ أمر الأعمال (تقارير المشاريع)
+# 1️⃣ أمر الأعمال
 # ═══════════════════════════════════════════════
 @bot.tree.command(name="الأعمال", description="عرض جميع الأعمال والاعضاء")
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
@@ -233,7 +385,7 @@ async def projects_report(interaction: discord.Interaction):
 
 
 # ═══════════════════════════════════════════════
-# 2️⃣ إحصائيات متقدمة (تصميم احترافي بصورة البوت)
+# 2️⃣ إحصائيات (باستخدام أزرار التنقل)
 # ═══════════════════════════════════════════════
 @bot.tree.command(name="احصائيات", description="عرض إحصائيات متقدمة")
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
@@ -243,113 +395,16 @@ async def stats(interaction: discord.Interaction):
         await interaction.response.send_message("لا توجد إحصائيات بعد.", ephemeral=True)
         return
 
-    total_entries = stat_doc.get("total_entries", 0)
-    total_amount = stat_doc.get("total_amount", 0)
-    type_counts = stat_doc.get("type_counts", {})
-    daily = stat_doc.get("daily", {"entries":0, "amount":0})
-    weekly = stat_doc.get("weekly", {"entries":0, "amount":0})
-    monthly = stat_doc.get("monthly", {"entries":0, "amount":0})
-    top_members = stat_doc.get("top_members", [])
-    last_updated = stat_doc.get("last_updated", "غير معروف")
-
-    # إعداد الإمبيد الأساسي بصورة البوت
     bot_member = interaction.guild.me
-    embed = discord.Embed(
-        title="📊 **لوحة الإحصائيات الشاملة**",
-        color=discord.Color.teal(),
-        timestamp=datetime.utcnow()
-    )
-    embed.set_author(
-        name=bot_member.display_name,
-        icon_url=bot_member.display_avatar.url
-    )
-    embed.set_thumbnail(url=bot_member.display_avatar.replace(size=256).url)
-
-    # قسم الإجماليات الرئيسية
-    embed.add_field(
-        name="**📄 إجمالي الفصول**",
-        value=f"```py\n{total_entries}```",
-        inline=True
-    )
-    embed.add_field(
-        name="**💰 إجمالي المبالغ**",
-        value=f"```css\n{SETTINGS.get('currency', '$')}{total_amount:,.2f}```",
-        inline=True
-    )
-    embed.add_field(
-        name="**👥 الأعضاء النشطون**",
-        value=f"```yaml\n{len(stat_doc.get('top_members', []))}```",
-        inline=True
-    )
-
-    # تفصيل التخصصات بشكل أعمدة
-    type_lines = ""
-    for k, v in type_counts.items():
-        pct = (v / total_entries * 100) if total_entries else 0
-        bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
-        type_lines += f"**{k.replace('_',' ').title()}**: `{v:>4}` {bar}\n"
-    if type_lines:
-        embed.add_field(
-            name="**📊 تفصيل التخصصات**",
-            value=type_lines,
-            inline=False
-        )
-
-    # المؤشرات الزمنية بشكل عصري
-    time_fields = [
-        ("📅 اليوم", daily["entries"], daily["amount"]),
-        ("📆 الأسبوع", weekly["entries"], weekly["amount"]),
-        ("📅 الشهر", monthly["entries"], monthly["amount"])
-    ]
-    for name, ents, amt in time_fields:
-        embed.add_field(
-            name=f"**{name}**",
-            value=f"📑 الفصول: `{ents}`\n💰 المبلغ: `{SETTINGS.get('currency', '$')}{amt:,.2f}`",
-            inline=True
-        )
-
-    # أفضل الأعضاء بميداليات
-    if top_members:
-        top_list = ""
-        medals = ["🥇", "🥈", "🥉"]
-        records = await load_records()
-        for i, (uid, stats_data) in enumerate(top_members[:5], 1):
-            uid_int = int(uid)
-            username_hint = None
-            if uid in records:
-                for e in records[uid]:
-                    if e.get("username"):
-                        username_hint = e["username"]
-                        break
-            display = format_member_display(interaction.guild, uid_int, username_hint)
-            medal = medals[i-1] if i <= 3 else "🏅"
-            top_list += (
-                f"{medal} `{i}.` {display}\n"
-                f"┗ 💰 {stats_data['total_amount']:,.2f} {SETTINGS.get('currency', '$')} | 📑 {stats_data['total_entries']} فصل\n"
-            )
-        embed.add_field(
-            name="**🏆 أفضل الأعضاء**",
-            value=top_list,
-            inline=False
-        )
-
-    # تذييل مع وقت التحديث الأخير
-    if last_updated != "غير معروف":
-        try:
-            updated_time = datetime.fromisoformat(last_updated)
-            relative = f"<t:{int(updated_time.timestamp())}:R>"
-            footer = f"🕒 آخر تحديث: {relative}"
-        except:
-            footer = f"🕒 آخر تحديث: {last_updated[:19]}"
-    else:
-        footer = "🕒 آخر تحديث: غير معروف"
-    embed.set_footer(text=footer, icon_url=bot_member.display_avatar.url)
-
-    await interaction.response.send_message(embed=embed)
+    currency = SETTINGS.get('currency', '$')
+    view = StatsView(stat_doc, bot_member, currency)
+    embed = view._overview_embed()  # يبدأ بالصفحة الرئيسية
+    view._highlight_button("overview")
+    await interaction.response.send_message(embed=embed, view=view)
 
 
 # ═══════════════════════════════════════════════
-# 3️⃣ أعمالي (خاص بالمستخدم)
+# 3️⃣ أعمالي
 # ═══════════════════════════════════════════════
 @bot.tree.command(name="أعمالي", description="عرض أعمالك مجمعة مع المكافآت والخصومات")
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
@@ -398,7 +453,7 @@ async def my_works_text(ctx):
 
 
 # ═══════════════════════════════════════════════
-# 4️⃣ شغل (عرض شغل أي عضو)
+# 4️⃣ شغل
 # ═══════════════════════════════════════════════
 @bot.tree.command(name="شغل", description="عرض شغل عضو مجمّع مع المكافآت والخصومات")
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
@@ -465,7 +520,7 @@ def _categorize_records(entries):
 
 
 # ═══════════════════════════════════════════════
-# 5️⃣ لوحة التحكم (مشرفين)
+# 5️⃣ لوحة التحكم
 # ═══════════════════════════════════════════════
 @bot.tree.command(name="لوحة_التحكم", description="لوحة تحكم للمشرفين")
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
