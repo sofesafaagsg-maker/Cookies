@@ -5,37 +5,10 @@ from discord import app_commands
 from discord.ext import commands
 from state import bot
 from helpers.core import *
-from tasks.lifecycle import work_autocomplete
-
-# دالة autocomplete لحقل التخصصات - ديناميكية بناءً على العمل المختار
-async def specialization_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
-    # محاولة قراءة العمل المختار من الحقل السابق
-    work_name = None
-    try:
-        work_name = interaction.namespace.العمل
-    except AttributeError:
-        pass
-
-    # إذا تم اختيار عمل وله تخصصات مخصصة، نعرضها فقط
-    if work_name:
-        work = await get_work(work_name)
-        if work and "custom_prices" in work and isinstance(work["custom_prices"], dict):
-            choices = []
-            for spec in work["custom_prices"].keys():
-                if current.lower() in spec.lower():
-                    choices.append(app_commands.Choice(name=spec[:100], value=spec))
-            return choices[:25]
-
-    # وإلا نعرض التخصصات العامة
-    choices = [
-        app_commands.Choice(name=t, value=t)
-        for t in PRICES.keys()
-        if current.lower() in t.lower()
-    ]
-    return choices[:25]
+from tasks.lifecycle import work_autocomplete, registration_specialty_autocomplete
 
 @bot.tree.command(name="تسجيل", description="تسجيل شغل جديد (يدعم الفلترة حسب الأعمال المدفوعة)")
-@app_commands.autocomplete(العمل=work_autocomplete, التخصصات=specialization_autocomplete)
+@app_commands.autocomplete(العمل=work_autocomplete, التخصصات=registration_specialty_autocomplete)
 @app_commands.describe(
     العمل="اسم العمل (اختر من القائمة)",
     الفصول="نطاق الفصول مثل 1-5 أو 1,3,5",
@@ -182,7 +155,7 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
 # أمر /تسجيل_للغير (موحد مع نفس التصميم)
 # ----------------------------------------------------------------------
 @bot.tree.command(name="تسجيل_للغير", description="تسجيل شغل لعضو معين (للمشرفين فقط)")
-@app_commands.autocomplete(العمل=work_autocomplete, التخصصات=specialization_autocomplete)
+@app_commands.autocomplete(العمل=work_autocomplete, التخصصات=registration_specialty_autocomplete)
 @app_commands.describe(
     عضو="العضو الذي تريد تسجيل الشغل له",
     العمل="اسم العمل (يجب أن يكون موجوداً في القائمة)",
