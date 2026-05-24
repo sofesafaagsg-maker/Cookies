@@ -155,7 +155,26 @@ async def work_autocomplete(interaction: discord.Interaction, current: str) -> L
     return choices[:25]
 
 async def specialty_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
-    """Autocomplete for specialty names (showing active ones)."""
+    """Autocomplete for specialty names – dynamic based on selected work."""
+    # Try to read the work chosen in the previous field
+    work_name = None
+    try:
+        work_name = interaction.namespace.العمل
+    except AttributeError:
+        pass
+
+    # If a work is selected and it has custom_prices, show only those specialties
+    if work_name:
+        work = await get_work(work_name)
+        if work and "custom_prices" in work and isinstance(work["custom_prices"], dict):
+            choices = []
+            for spec in work["custom_prices"].keys():
+                display_name = spec.replace('_', ' ').title()
+                if current.lower() in display_name.lower():
+                    choices.append(app_commands.Choice(name=display_name[:100], value=spec))
+            return choices[:25]
+
+    # Fallback to global specialties
     choices = []
     for name in PRICES.keys():
         display_name = name.replace('_', ' ').title()
@@ -164,7 +183,4 @@ async def specialty_autocomplete(interaction: discord.Interaction, current: str)
     return choices[:25]
 
 async def custom_setup():
-    bot.add_listener(on_command_error, "on_command_error")
-
-# ----------------------------------------------------------------------
-# Command: تحديد_قنوات
+    bot.add_listener(on_command_error, "on_command_error")د_قنوات
