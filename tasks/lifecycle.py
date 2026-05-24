@@ -144,7 +144,7 @@ async def send_payment_reminder(hours_before):
     await channel.send(embed=embed)
 
 # ----------------------------------------------------------------------
-# Autocomplete helper (must be defined before any command that uses it)
+# Autocomplete helpers
 # ----------------------------------------------------------------------
 async def work_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
     works = await load_works()
@@ -154,16 +154,18 @@ async def work_autocomplete(interaction: discord.Interaction, current: str) -> L
             choices.append(app_commands.Choice(name=w["name"][:100], value=w["name"]))
     return choices[:25]
 
-async def specialty_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
-    """Autocomplete for specialty names – dynamic based on selected work."""
-    # Try to read the work chosen in the previous field
+async def registration_specialty_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+    """
+    تُستخدم فقط في أوامر التسجيل (/تسجيل و /تسجيل_للغير).
+    إذا كان العمل المختار يمتلك تخصيصات خاصة، تُظهرها فقط.
+    وإلا تُظهر التخصصات العامة.
+    """
     work_name = None
     try:
         work_name = interaction.namespace.العمل
     except AttributeError:
         pass
 
-    # If a work is selected and it has custom_prices, show only those specialties
     if work_name:
         work = await get_work(work_name)
         if work and "custom_prices" in work and isinstance(work["custom_prices"], dict):
@@ -180,6 +182,30 @@ async def specialty_autocomplete(interaction: discord.Interaction, current: str)
         display_name = name.replace('_', ' ').title()
         if current.lower() in display_name.lower():
             choices.append(app_commands.Choice(name=display_name[:100], value=name))
+    return choices[:25]
+
+async def specialty_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+    """
+    تُستخدم في أوامر الإدارة.
+    تُظهر جميع التخصصات العامة + أي تخصص خاص من أي عمل غير موجود في العامة،
+    مع ملاحظة " (خاص لعمل X)" في الاسم.
+    """
+    choices = []
+    # 1. التخصصات العامة (من PRICES)
+    for spec in PRICES.keys():
+        display = spec.replace('_', ' ').title()
+        if current.lower() in display.lower():
+            choices.append(app_commands.Choice(name=display[:100], value=spec))
+
+    # 2. التخصصات الخاصة من أي عمل، بشرط أن لا تكون موجودة أصلاً في العامة
+    works = await load_works()
+    for w in works:
+        custom = w.get("custom_prices", {})
+        for spec, price in custom.items():
+            if spec not in PRICES:  # ليس لها مقابل عام، نُظهرها مع ملاحظة
+                display = spec.replace('_', ' ').title() + f" (خاص لعمل {w['name']})"
+                if current.lower() in display.lower():
+                    choices.append(app_commands.Choice(name=display[:100], value=spec))
     return choices[:25]
 
 async def custom_setup():
