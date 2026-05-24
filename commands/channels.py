@@ -26,24 +26,29 @@ async def set_allowed_channels_slash(interaction: discord.Interaction,
             channel_id = int(input_str[2:-1])
             ch = bot.get_channel(channel_id)
             if ch:
-                return ch.name
+                return ch.id   # تخزين المعرف بدلاً من الاسم
         # Try as numeric ID
         elif input_str.isdigit():
             ch = bot.get_channel(int(input_str))
             if ch:
-                return ch.name
-        # Otherwise treat as channel name (fallback, may not exist in current guild but we store it anyway)
+                return ch.id   # تخزين المعرف
+        # Otherwise treat as channel name (fallback)
         return input_str
 
-    ch1_name = resolve_channel(channel1)
-    channels = [ch1_name]
+    ch1_value = resolve_channel(channel1)
+    channels = [ch1_value]
     if channel2:
-        ch2_name = resolve_channel(channel2)
-        channels.append(ch2_name)
+        ch2_value = resolve_channel(channel2)
+        channels.append(ch2_value)
+    # إزالة التكرار والحفاظ على الحد الأقصى 2
     channels = list(dict.fromkeys(channels))[:2]
     SETTINGS["allowed_channels"] = channels
     await save_settings(SETTINGS)
-    channels_str = ", ".join([f"#{ch}" for ch in SETTINGS["allowed_channels"]])
+    # تحويل القيم إلى نص لعرضها (إذا كانت رقماً نعرضها كمنشن)
+    channels_str = ", ".join(
+        f"<#{ch}>" if isinstance(ch, int) else f"#{ch}"
+        for ch in SETTINGS["allowed_channels"]
+    )
     await interaction.response.send_message(f"✅ تم تحديث القنوات المسموحة إلى: {channels_str}", ephemeral=True)
     await log_audit("تحديد_قنوات", interaction.user.id, None, f"القنوات الجديدة: {channels_str}")
 
@@ -57,35 +62,38 @@ async def set_allowed_channels_text(ctx, channel1: str, channel2: str = None):
             channel_id = int(input_str[2:-1])
             ch = bot.get_channel(channel_id)
             if ch:
-                return ch.name
+                return ch.id   # تخزين المعرف
         elif input_str.isdigit():
             ch = bot.get_channel(int(input_str))
             if ch:
-                return ch.name
+                return ch.id   # تخزين المعرف
         # Fallback to local guild channel lookup by name or mention
         if input_str.startswith('<#') and input_str.endswith('>'):
             channel_id = int(input_str[2:-1])
             channel = ctx.guild.get_channel(channel_id)
             if channel:
-                return channel.name
+                return channel.id
         elif input_str.isdigit():
             channel = ctx.guild.get_channel(int(input_str))
             if channel:
-                return channel.name
+                return channel.id
         else:
             for ch in ctx.guild.channels:
                 if ch.name == input_str:
-                    return ch.name
+                    return ch.id   # تخزين المعرف
         return input_str
-    ch1_name = extract_channel_name(channel1)
-    ch2_name = extract_channel_name(channel2) if channel2 else None
-    channels = [ch1_name]
-    if ch2_name:
-        channels.append(ch2_name)
+    ch1_value = extract_channel_name(channel1)
+    channels = [ch1_value]
+    if channel2:
+        ch2_value = extract_channel_name(channel2)
+        channels.append(ch2_value)
     channels = list(dict.fromkeys(channels))[:2]
     SETTINGS["allowed_channels"] = channels
     await save_settings(SETTINGS)
-    channels_str = ", ".join([f"#{ch}" for ch in SETTINGS["allowed_channels"]])
+    channels_str = ", ".join(
+        f"<#{ch}>" if isinstance(ch, int) else f"#{ch}"
+        for ch in SETTINGS["allowed_channels"]
+    )
     await ctx.send(f"✅ تم تحديث القنوات المسموحة إلى: {channels_str}")
     await log_audit("تحديد_قنوات", ctx.author.id, None, f"القنوات الجديدة: {channels_str}")
 
@@ -119,6 +127,7 @@ async def upload_records(interaction: discord.Interaction, file: discord.Attachm
         if not isinstance(records_data, dict):
             await interaction.followup.send("❌ قسم records غير صالح.", ephemeral=True)
             return
+        from database import collection
         await collection.update_one({"_id": "records"}, {"$set": {"data": records_data}}, upsert=True)
         total_users = len(records_data)
         total_entries = sum(len(entries) for entries in records_data.values() if isinstance(entries, list))
