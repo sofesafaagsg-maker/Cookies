@@ -395,3 +395,75 @@ async def get_specialty_price(work_name: str, specialty: str) -> float:
         return work["custom_prices"][specialty]
     # Fallback to global price (from PRICES loaded from specialties settings)
     return PRICES.get(specialty, 0.0)
+
+# ----------------------------------------------------------------------
+# NEW: Helpers to move specialties between global and work-specific
+# ----------------------------------------------------------------------
+async def move_specialty_to_work_core(work_name: str, specialty: str) -> tuple[bool, str, float]:
+    """
+    Move a specialty from the global list into the custom_prices of a specific work.
+    Returns (success, message, price) where price is the old global price if success.
+    """
+    specialties = SETTINGS.get("specialties", {})
+    norm = map_type(specialty)
+    if norm not in specialties:
+        return False, f"التخصص `{specialty}` غير موجود في القائمة العامة.", 0.0
+    if not specialties[norm].get("active", True):
+        return False, f"التخصص `{specialty}` معطّل حالياً ولا يمكن نقله.", 0.0
+
+    price = specialties[norm]["price"]
+    # Remove from global
+    del specialties[norm]
+    await save_settings(SETTINGS)
+    rebuild_prices()
+
+    # Add to work's custom_prices
+    works = await load_works()
+    target = next((w for w in works if w["name"] == work_name), None)
+    if not target:
+        # Rollback: re-add to global
+        specialties[norm] = {"price": price, "active": True, "last_modified": datetime.now(timezone.utc).isoformat()}
+        await save_settings(SETTINGS)
+        rebuild_prices()
+        return False, f"العمل `{work_name}` غير موجود.", 0.0
+
+    if "custom_prices" not in target:
+        target["custom_prices"] = {}
+    target["custom_prices"][norm] = price
+    await save_works(works)
+
+    return True, f"تم نقل التخصص `{specialty}` إلى عمل `{work_name}` بسعر {price}.", price
+
+async def move_specialty_to_global_core(work_name: str, specialty: str) -> tuple[bool, str, float]:
+    """
+    Move a specialty from a work's custom_prices back to the global list.
+    Returns (success, message, price).
+    """
+    works = await load_works()
+    target = next((w for w in works if w["name"] == work_name), None)
+    if not target:
+        return False, f"العمل `{work_name}` غير موجود.", 0.0
+
+    custom = target.get("custom_prices")
+    norm = map_type(specialty)
+    if not custom or norm not in custom:
+        return False, f"التخصص `{specialty}` غير موجود في تخصيصات العمل `{work_name}`.", 0.0
+
+    price = custom[norm]
+    # Remove from work
+    del custom[norm]
+    if not custom:
+        del target["custom_prices"]
+    await save_works(works)
+
+    # Add to global specialties
+    specialties = SETTINGS.get("specialties", {})
+    specialties[norm] = {
+        "price": price,
+        "active": True,
+        "last_modified": datetime.now(timezone.utc).isoformat()
+    }
+    await save_settings(SETTINGS)
+    rebuild_prices()
+
+    return True, f"تم نقل التخصص `{specialty}` إلى القائمة العامة بسعر {price}.", price
