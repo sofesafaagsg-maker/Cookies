@@ -293,7 +293,7 @@ async def build_top_embed(guild: discord.Guild, currency, stat_doc, sort_by="amo
         lines.append(f"{medal} `{i}.` {display}\n┗ {detail}")
 
     embed.add_field(name="الترتيب", value="\n".join(lines), inline=False)
-    embed.set_footer(text="يتم التحديث تلقائياً مع كل إضافة سجل")
+    embed.set_footer(text="ZEUS...")
     return embed
 
 
