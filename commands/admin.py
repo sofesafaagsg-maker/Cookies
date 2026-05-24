@@ -224,7 +224,7 @@ async def list_works(interaction: discord.Interaction):
     await interaction.response.send_message(embed=view.get_embed(), view=view)
 
 # ----------------------------------------------------------------------
-# NEW: Work-specific pricing management commands
+# Work-specific pricing management commands
 # ----------------------------------------------------------------------
 @bot.tree.command(name="تخصيص_سعر_عمل", description="تخصيص سعر تخصص معين لعمل محدد (استثناء عن السعر العام)")
 @app_commands.autocomplete(العمل=work_autocomplete)
@@ -314,6 +314,108 @@ async def show_work_specialties(interaction: discord.Interaction, العمل: st
                           description="\n".join(lines),
                           color=discord.Color.orange())
     await interaction.response.send_message(embed=embed)
+
+# ----------------------------------------------------------------------
+# NEW: نقل تخصص من العام إلى الخاص بالعمل والعكس
+# ----------------------------------------------------------------------
+@bot.tree.command(name="نقل_تخصص_للخاص", description="نقل تخصص من القائمة العامة ليكون خاصاً بعمل محدد (يُزال من العامة)")
+@app_commands.autocomplete(العمل=work_autocomplete, التخصص=specialty_autocomplete)
+@app_commands.describe(العمل="اسم العمل الذي سيصبح التخصص خاصاً به", التخصص="اسم التخصص العام المراد نقله")
+@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
+async def move_specialty_to_work(interaction: discord.Interaction, العمل: str, التخصص: str):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "نقل_تخصص_للخاص")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+
+    norm_specialty = map_type(التخصص)
+    specialties = SETTINGS.get("specialties", {})
+    if norm_specialty not in specialties:
+        await interaction.response.send_message(f"❌ التخصص `{التخصص}` غير موجود في التخصصات العامة.", ephemeral=True)
+        return
+    if not specialties[norm_specialty].get("active", True):
+        await interaction.response.send_message(f"❌ التخصص `{التخصص}` معطّل حالياً في القائمة العامة.", ephemeral=True)
+        return
+
+    works = await load_works()
+    target_work = next((w for w in works if w["name"] == العمل), None)
+    if not target_work:
+        await interaction.response.send_message(f"❌ العمل `{العمل}` غير موجود.", ephemeral=True)
+        return
+
+    # جلب السعر الحالي من التخصص العام
+    current_price = specialties[norm_specialty]["price"]
+
+    # إزالة التخصص من القائمة العامة
+    del specialties[norm_specialty]
+    await save_settings(SETTINGS)
+    rebuild_prices()
+
+    # إضافته إلى custom_prices الخاصة بالعمل
+    if "custom_prices" not in target_work:
+        target_work["custom_prices"] = {}
+    target_work["custom_prices"][norm_specialty] = current_price
+    await save_works(works)
+
+    await log_audit("نقل_تخصص_للخاص", interaction.user.id, None,
+                    f"نقل تخصص {norm_specialty} من العامة إلى عمل {العمل} بسعر {current_price}")
+    await interaction.response.send_message(
+        f"✅ تم نقل التخصص `{norm_specialty}` من القائمة العامة إلى عمل `{العمل}`.\n"
+        f"السعر المخصص: **{current_price}** (نفس السعر العام السابق).",
+        ephemeral=True
+    )
+
+@bot.tree.command(name="نقل_تخصص_للعام", description="نقل تخصص خاص بعمل ليصبح تخصصاً عاماً من جديد")
+@app_commands.autocomplete(العمل=work_autocomplete)
+@app_commands.describe(العمل="اسم العمل الذي يحتوي التخصص الخاص", التخصص="اسم التخصص الموجود ضمن تخصيصات العمل")
+@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
+async def move_specialty_to_global(interaction: discord.Interaction, العمل: str, التخصص: str):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "نقل_تخصص_للعام")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+
+    norm_specialty = map_type(التخصص)
+    works = await load_works()
+    target_work = next((w for w in works if w["name"] == العمل), None)
+    if not target_work:
+        await interaction.response.send_message(f"❌ العمل `{العمل}` غير موجود.", ephemeral=True)
+        return
+
+    custom = target_work.get("custom_prices")
+    if not custom or norm_specialty not in custom:
+        await interaction.response.send_message(
+            f"❌ التخصص `{norm_specialty}` غير موجود ضمن تخصيصات العمل `{العمل}`.",
+            ephemeral=True
+        )
+        return
+
+    # جلب السعر المخصص
+    price = custom[norm_specialty]
+
+    # إزالة التخصص من custom_prices
+    del custom[norm_specialty]
+    if not custom:  # إذا لم تبق تخصصات أخرى، نحذف القاموس
+        del target_work["custom_prices"]
+    await save_works(works)
+
+    # إضافة التخصص إلى القائمة العامة (نشط بنفس السعر)
+    specialties = SETTINGS.get("specialties", {})
+    specialties[norm_specialty] = {
+        "price": price,
+        "active": True,
+        "last_modified": datetime.utcnow().isoformat()
+    }
+    await save_settings(SETTINGS)
+    rebuild_prices()
+
+    await log_audit("نقل_تخصص_للعام", interaction.user.id, None,
+                    f"نقل تخصص {norm_specialty} من عمل {العمل} إلى العامة بسعر {price}")
+    await interaction.response.send_message(
+        f"✅ تم نقل التخصص `{norm_specialty}` من عمل `{العمل}` إلى التخصصات العامة.\n"
+        f"السعر العام الآن: **{price}**",
+        ephemeral=True
+    )
 
 # ----------------------------------------------------------------------
 # NEW: Specialty management commands
