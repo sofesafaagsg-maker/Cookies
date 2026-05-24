@@ -228,18 +228,17 @@ def get_top_members_dict(stat_doc):
         return result
     return {}
 
-async def build_top_embed(guild: discord.Guild, currency, stat_doc, sort_by="amount", work_type=None):
-    """بناء إمبيد أفضل الأعضاء (يُستخدم من StatsView و TopView)"""
+async def build_top_embed(guild: discord.Guild, currency, stat_doc, sort_by="amount", work_type=None, limit=10):
     records = await load_records()
     all_members = get_top_members_dict(stat_doc)
     members_stats = [(uid, stats) for uid, stats in all_members.items()]
 
     if sort_by == "amount":
         sorted_list = sorted(members_stats, key=lambda x: x[1].get('total_amount', 0), reverse=True)
-        title = "🏆 أفضل 10 أعضاء (إجمالي المبلغ)"
+        title = f"🏆 أفضل {limit} أعضاء (إجمالي المبلغ)"
     elif sort_by == "chapters":
         sorted_list = sorted(members_stats, key=lambda x: x[1].get('total_entries', 0), reverse=True)
-        title = "📑 أفضل 10 أعضاء (عدد الفصول)"
+        title = f"📑 أفضل {limit} أعضاء (عدد الفصول)"
     elif sort_by == "by_type" and work_type:
         filtered = []
         for uid, stats in members_stats:
@@ -250,26 +249,37 @@ async def build_top_embed(guild: discord.Guild, currency, stat_doc, sort_by="amo
                 if count > 0:
                     filtered.append((uid, {"total_entries": count, "total_amount": total}))
         sorted_list = sorted(filtered, key=lambda x: x[1].get('total_amount', 0), reverse=True)
-        title = f"🏆 أفضل 10 أعضاء في {work_type.replace('_',' ').title()}"
+        title = f"🏆 أفضل {limit} أعضاء في {work_type.replace('_',' ').title()}"
     else:
         sorted_list = sorted(members_stats, key=lambda x: x[1].get('total_amount', 0), reverse=True)
-        title = "🏆 أفضل 10 أعضاء"
+        title = f"🏆 أفضل {limit} أعضاء"
 
-    # إمبيد أساسي (سنخصصه داخل الكلاسات حسب الحاجة)
     embed = discord.Embed(title=title, color=discord.Color.gold(), timestamp=datetime.utcnow())
 
     if not sorted_list:
         embed.description = "لا توجد بيانات كافية."
         return embed
 
-    medals = ["🥇", "🥈", "🥉"] + ["🏅"] * 7
+    top_items = sorted_list[:limit]
+    medals = ["🥇", "🥈", "🥉"] + ["🏅"] * (limit - 3)
     lines = []
-    for i, (uid, stats_data) in enumerate(sorted_list[:10], 1):
+
+    for i, (uid, stats_data) in enumerate(top_items, 1):
         uid_int = int(uid)
-        member = guild.get_member(uid_int)
+        member = guild.get_member(uid_int)  # محاولة من الكاش
+
+        if member is None:
+            try:
+                # جلب العضو من API إذا لم يكن في الكاش
+                member = await guild.fetch_member(uid_int)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                member = None
+
         if member:
+            # العضو موجود في السيرفر - منشن حقيقي
             display = member.mention
         else:
+            # العضو غير موجود (ربما غادر) - نعرض اسم مخزن أو ID
             uid_str = str(uid)
             fallback_name = None
             if uid_str in records:
@@ -285,7 +295,7 @@ async def build_top_embed(guild: discord.Guild, currency, stat_doc, sort_by="amo
                     fallback_name = f"مستخدم {uid_int}"
             display = f"**{fallback_name}** (غادر)"
 
-        medal = medals[i-1]
+        medal = medals[i-1] if i-1 < len(medals) else "🏅"
         if sort_by == "chapters":
             detail = f"{stats_data['total_entries']} فصل"
         else:
@@ -293,7 +303,10 @@ async def build_top_embed(guild: discord.Guild, currency, stat_doc, sort_by="amo
         lines.append(f"{medal} `{i}.` {display}\n┗ {detail}")
 
     embed.add_field(name="الترتيب", value="\n".join(lines), inline=False)
-    embed.set_footer(text="ZEUS...")
+    if len(top_items) < limit:
+        embed.set_footer(text=f"يوجد فقط {len(top_items)} أعضاء في التصنيف الحالي • سيتم تحديث الإحصائية تلقائياً")
+    else:
+        embed.set_footer(text="ZEUS....")
     return embed
 
 
