@@ -2,7 +2,7 @@ from datetime import datetime, timezone, timedelta
 import discord
 from discord import app_commands
 from discord.ext import commands
-from state import bot
+from state import bot, SETTINGS, stats_collection, audit_collection
 from helpers.core import *
 from helpers.core import make_embed
 from views.paginators import WorkDetailsView, WorksPaginator, get_works_info
@@ -57,7 +57,8 @@ def _build_work_embed(target: discord.Member, data: dict, currency: str) -> disc
         description=f"📊 ملخص مالي وحسابي شامل لإجمالي السجلات الخاصة بالعضو {target.mention}.",
         color=discord.Color.blue()
     )
-    embed.set_thumbnail(url=target.display_name if not target.avatar else target.avatar.url)
+    # استخدام رابط الصورة الرمزية الافتراضية دائمًا (حتى لو لم يخصص صورة)
+    embed.set_thumbnail(url=target.display_avatar.url)
     
     # عرض تفاصيل الأعمال
     for work, entries in data["works"].items():
@@ -81,9 +82,10 @@ def _build_work_embed(target: discord.Member, data: dict, currency: str) -> disc
     if data["bonuses"] or data["deductions"]:
         balance_details = ""
         if data["total_bonus"] > 0:
-            balance_details += f"🎁 **إجمالي المكافآت:** `{currency}{data["total_bonus"]:.2f}`\n"
+            # تم تصحيح علامات التنصيص في الأسطر التالية
+            balance_details += f'🎁 **إجمالي المكافآت:** `{currency}{data["total_bonus"]:.2f}`\n'
         if data["total_deduction"] > 0:
-            balance_details += f"🔻 **إجمالي الخصومات:** `{currency}{data["total_deduction"]:.2f}`\n"
+            balance_details += f'🔻 **إجمالي الخصومات:** `{currency}{data["total_deduction"]:.2f}`\n'
         embed.add_field(name="⚖️ تسويات مالية اضافية", value=balance_details, inline=False)
 
     # الصافي النهائي المتميز
@@ -108,13 +110,12 @@ def _create_work_buttons(user_id: str, target_name: str, data: dict, currency: s
         
         button = discord.ui.Button(label=f"معاينة: {work}", style=discord.ButtonStyle.secondary, emoji="📖")
         
-        async def make_callback(wn=work, ch_list=chapters_details):
-            async def btn_cb(interaction: discord.Interaction):
-                v = WorkDetailsView(wn, ch_list, user_id, target_name, currency)
-                await interaction.response.send_message(embed=v.get_embed(), view=v, ephemeral=True)
-            return btn_cb
+        # إصلاح مشكلة await في دالة غير متزامنة باستخدام الإغلاق المباشر
+        async def btn_cb(interaction: discord.Interaction, wn=work, ch_list=chapters_details):
+            v = WorkDetailsView(wn, ch_list, user_id, target_name, currency)
+            await interaction.response.send_message(embed=v.get_embed(), view=v, ephemeral=True)
             
-        button.callback = await make_callback()
+        button.callback = btn_cb
         view.add_item(button)
     return view
 
@@ -207,8 +208,8 @@ async def stats(interaction: discord.Interaction):
     
     # تنسيق قسم التخصصات بشكل منظم داخل صندوق كود
     if type_counts:
-    type_lines = "\n".join([f"▫️ {k.replace('_',' ').title()}: {v} فصل" for k, v in type_counts.items()])
-    embed.add_field(name="⚡ تفصيل الإنتاجية حسب التخصص", value=f"```md\n{type_lines}```", inline=False)
+        type_lines = "\n".join([f"▫️ {k.replace('_',' ').title()}: {v} فصل" for k, v in type_counts.items()])
+        embed.add_field(name="⚡ تفصيل الإنتاجية حسب التخصص", value=f"```md\n{type_lines}```", inline=False)
 
     # فترات العمل الزمني الموحد
     embed.add_field(name="📅 الحصاد اليومي", value=f"📝 فصول: `{daily['entries']}`\n💵 بمبلغ: `{currency}{daily['amount']:.2f}`", inline=True)
