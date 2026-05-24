@@ -224,6 +224,98 @@ async def list_works(interaction: discord.Interaction):
     await interaction.response.send_message(embed=view.get_embed(), view=view)
 
 # ----------------------------------------------------------------------
+# NEW: Work-specific pricing management commands
+# ----------------------------------------------------------------------
+@bot.tree.command(name="تخصيص_سعر_عمل", description="تخصيص سعر تخصص معين لعمل محدد (استثناء عن السعر العام)")
+@app_commands.autocomplete(العمل=work_autocomplete)
+@app_commands.describe(العمل="اسم العمل", التخصص="اسم التخصص الذي تريد تخصيص سعره", السعر="السعر المخصص للفصل الواحد")
+@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
+async def set_work_specialty_price(interaction: discord.Interaction, العمل: str, التخصص: str, السعر: float):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "تخصيص_سعر_عمل")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+
+    works = await load_works()
+    target = next((w for w in works if w["name"] == العمل), None)
+    if not target:
+        await interaction.response.send_message(f"❌ العمل `{العمل}` غير موجود.", ephemeral=True)
+        return
+
+    # Normalize the specialty name (replace spaces with underscores)
+    norm_specialty = map_type(التخصص)
+
+    if "custom_prices" not in target:
+        target["custom_prices"] = {}
+
+    target["custom_prices"][norm_specialty] = السعر
+    await save_works(works)
+
+    await log_audit("تخصيص_سعر_عمل", interaction.user.id, None,
+                    f"تخصيص سعر تخصص {norm_specialty} لعمل {العمل} -> {السعر}")
+    await interaction.response.send_message(
+        f"✅ تم تخصيص سعر التخصص `{norm_specialty}` لعمل `{العمل}`: **{السعر}**",
+        ephemeral=True
+    )
+
+@bot.tree.command(name="الغاء_تخصيص_عمل", description="إزالة التخصيصات السعرية لعمل وإعادته إلى الأسعار العامة")
+@app_commands.autocomplete(العمل=work_autocomplete)
+@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
+async def remove_work_specialty_prices(interaction: discord.Interaction, العمل: str):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "الغاء_تخصيص_عمل")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+
+    works = await load_works()
+    target = next((w for w in works if w["name"] == العمل), None)
+    if not target:
+        await interaction.response.send_message(f"❌ العمل `{العمل}` غير موجود.", ephemeral=True)
+        return
+
+    if "custom_prices" not in target:
+        await interaction.response.send_message(f"ℹ️ العمل `{العمل}` ليس له تخصيصات سعرية أصلاً.", ephemeral=True)
+        return
+
+    del target["custom_prices"]
+    await save_works(works)
+
+    await log_audit("الغاء_تخصيص_عمل", interaction.user.id, None,
+                    f"إزالة كل التخصيصات السعرية من عمل {العمل}")
+    await interaction.response.send_message(
+        f"✅ تم إلغاء جميع التخصيصات السعرية لعمل `{العمل}` وسيعود الآن للأسعار العامة.",
+        ephemeral=True
+    )
+
+@bot.tree.command(name="عرض_تخصيصات_عمل", description="عرض التخصصات ذات الأسعار المخصصة لعمل معين")
+@app_commands.autocomplete(العمل=work_autocomplete)
+@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
+async def show_work_specialties(interaction: discord.Interaction, العمل: str):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "عرض_تخصيصات_عمل")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+
+    work = await get_work(العمل)
+    if not work:
+        await interaction.response.send_message(f"❌ العمل `{العمل}` غير موجود.", ephemeral=True)
+        return
+
+    custom = work.get("custom_prices")
+    if not custom:
+        await interaction.response.send_message(
+            f"ℹ️ العمل `{العمل}` يخضع للأسعار العامة وليس له تخصيصات خاصة.",
+            ephemeral=True
+        )
+        return
+
+    lines = [f"**{spec}**: {price}" for spec, price in custom.items()]
+    embed = discord.Embed(title=f"📌 التخصيصات السعرية لعمل {العمل}",
+                          description="\n".join(lines),
+                          color=discord.Color.orange())
+    await interaction.response.send_message(embed=embed)
+
+# ----------------------------------------------------------------------
 # NEW: Specialty management commands
 # ----------------------------------------------------------------------
 @bot.tree.command(name="اضافة_تخصص", description="إضافة تخصص جديد (للمشرفين)")
