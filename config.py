@@ -26,7 +26,7 @@ if MONGODB_URI is None:
 
 # Default allowed channels (will be loaded from DB)
 # يمكن أن تحتوي على أسماء قنوات (نص) أو معرفات رقمية
-DEFAULT_ALLOWED_CHANNELS = ["تسجيــــــــل-اعمال〢💵", ム・💎〢شات・اونر]
+DEFAULT_ALLOWED_CHANNELS = ["تسجيــــــــل-اعمال〢💵", "ム・💎〢شات・اونر"]
 
 # Initial specialties definition (will be stored in settings)
 DEFAULT_SPECIALTIES = {
