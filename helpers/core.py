@@ -266,7 +266,7 @@ async def update_stats():
         }
 
     top_members = sorted(member_stats.items(),
-                         key=lambda x: x[1]["total_amount"], reverse=True)[:5]
+                         key=lambda x: x[1]["total_amount"], reverse=True)[:10]
     top_members_data = [(uid, stats) for uid, stats in top_members]
 
     today = datetime.now(timezone.utc).date()
