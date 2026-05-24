@@ -183,4 +183,4 @@ async def specialty_autocomplete(interaction: discord.Interaction, current: str)
     return choices[:25]
 
 async def custom_setup():
-    bot.add_listener(on_command_error, "on_command_error")د_قنوات
+    bot.add_listener(on_command_error, "on_command_error")
