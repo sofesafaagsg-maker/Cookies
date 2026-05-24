@@ -3,7 +3,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from discord.ui import Modal, TextInput, Select, Button, View
-import asyncio
 import math
 from state import bot
 from helpers.core import *
@@ -11,22 +10,22 @@ from helpers.core import make_embed
 from views.paginators import WorkDetailsView, WorksPaginator, get_works_info
 
 # ----------------------------------------------------------------------
-# Utility functions for the enhanced commands
+# Utility functions
 # ----------------------------------------------------------------------
 def make_bar(percentage: float, length: int = 10) -> str:
-    """Creates an ASCII progress bar using block characters."""
     filled = max(0, min(length, round(percentage / 100 * length)))
     empty = length - filled
     return "█" * filled + "░" * empty
 
 def format_currency(amount: float) -> str:
-    """Formats amount with the bot's currency symbol."""
-    return f"{SETTINGS.get('currency', '$')}{amount:.2f}"
+    currency = SETTINGS.get('currency', '$')
+    if currency is None:
+        currency = '$'
+    return f"{currency}{amount:.2f}"
 
 def get_week_boundaries():
-    """Returns (start_of_week, end_of_week) based on UTC now."""
     now = datetime.now(timezone.utc)
-    start = now - timedelta(days=now.weekday())  # Monday
+    start = now - timedelta(days=now.weekday())
     start = start.replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=7)
     return start, end
@@ -39,7 +38,7 @@ def week_days_labels():
     return ["الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"]
 
 # ----------------------------------------------------------------------
-# Modals for user input
+# Modals
 # ----------------------------------------------------------------------
 class SearchWorkModal(Modal, title="بحث عن عمل"):
     name = TextInput(label="اسم العمل", placeholder="أدخل جزءاً من اسم العمل", required=True, max_length=100)
@@ -64,19 +63,16 @@ class EditEntryModal(Modal, title="تعديل السجل"):
         super().__init__()
         self.record = record
         self.parent_view = parent_view
-        # Pre-fill fields if they exist
         self.work_name.default = record.get("work_name", "")
         self.chapter.default = record.get("chapter", "")
         self.work_type.default = record.get("work_type", "")
         self.notes.default = record.get("notes", "")
-        # Set placeholders accordingly
         self.work_name.placeholder = self.work_name.default or "اسم العمل"
         self.chapter.placeholder = self.chapter.default or "رقم الفصل"
         self.work_type.placeholder = self.work_type.default or "التخصص"
         self.notes.placeholder = self.notes.default or "ملاحظات"
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Validate work type if provided
         if self.work_type.value:
             norm_type = map_type(self.work_type.value)
             if norm_type not in PRICES:
@@ -93,18 +89,15 @@ class EditEntryModal(Modal, title="تعديل السجل"):
 
         records = await load_records()
         user_id = str(interaction.user.id)
-        # Find the original record and replace it (assume parent_view holds index)
         if hasattr(self.parent_view, 'entry_index') and self.parent_view.entry_index is not None:
             records[user_id][self.parent_view.entry_index] = self.record
         await save_records(records)
         await update_stats()
         await interaction.response.send_message("✅ تم تعديل السجل بنجاح.", ephemeral=True)
-        # Optionally update parent message
         if hasattr(self.parent_view, 'original_interaction'):
             await self.parent_view.update_original()
 
 class SettingModal(Modal):
-    """Base modal for admin settings."""
     def __init__(self, title, setting_key, current_value, parent_view):
         super().__init__(title=title)
         self.setting_key = setting_key
@@ -113,26 +106,18 @@ class SettingModal(Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         new_val = self.children[0].value
-        # Type conversion based on setting
         if self.setting_key in ("alert_threshold", "payment_day", "payment_hour", "notify_channel_id", "daily_backup_channel_id"):
             try:
                 new_val = int(new_val)
             except ValueError:
                 await interaction.response.send_message("❌ القيمة يجب أن تكون رقماً.", ephemeral=True)
                 return
-        elif self.setting_key == "currency":
-            # currency is string like '$'
-            pass
-        # Update SETTINGS
         SETTINGS[self.setting_key] = new_val
-        # Save settings to database (assuming a save_settings function exists or we just update global)
         await interaction.response.send_message(f"✅ تم تحديث `{self.setting_key}` إلى `{new_val}`.", ephemeral=True)
-        # Refresh dashboard if parent view exists
         if self.parent_view:
             await self.parent_view.refresh_embed()
 
 class DateRangeModal(Modal):
-    """Modal for date filtering in audit log or works."""
     def __init__(self, parent_view, start_label="تاريخ البداية (YYYY-MM-DD)", end_label="تاريخ النهاية (YYYY-MM-DD)"):
         super().__init__(title="تحديد نطاق زمني")
         self.parent_view = parent_view
@@ -158,23 +143,35 @@ class DateRangeModal(Modal):
         await self.parent_view.update_message(interaction)
 
 # ----------------------------------------------------------------------
-# Enhanced Views with full interactivity
+# Views
 # ----------------------------------------------------------------------
 class EnhancedWorksView(View):
-    """Complete works browser with search, sort, and pagination."""
     def __init__(self, works_info, guild):
         super().__init__(timeout=300)
-        self.works_info = works_info
+        self.works_info = works_info  # list of tuples (work_name, members, total_chapters)
         self.guild = guild
         self.current_page = 0
         self.per_page = 5
         self.search_query = None
-        self.sort_by = "name"  # name, members, chapters
+        self.sort_by = "name"
         self.message = None
         self.prepare_sorted_list()
 
     def prepare_sorted_list(self):
-        data = self.works_info.copy()
+        # Convert tuples to dicts for easier handling
+        data = []
+        for w in self.works_info:
+            if isinstance(w, tuple):
+                # Assume order: work_name, members_list, total_chapters
+                work_dict = {
+                    "work_name": w[0] if len(w) > 0 else "غير معروف",
+                    "members": w[1] if len(w) > 1 else [],
+                    "total_chapters": w[2] if len(w) > 2 else 0
+                }
+                data.append(work_dict)
+            else:
+                data.append(w)
+
         if self.search_query:
             data = [w for w in data if self.search_query.lower() in w.get('work_name', '').lower()]
         if self.sort_by == "members":
@@ -256,7 +253,6 @@ class EnhancedWorksView(View):
 
     @discord.ui.button(label="تحديث", style=discord.ButtonStyle.success, emoji="🔄")
     async def refresh_button(self, interaction: discord.Interaction, button: Button):
-        # Re-fetch works info from database
         new_info = await get_works_info(self.guild)
         self.works_info = new_info
         self.current_page = 0
@@ -270,20 +266,20 @@ class EnhancedWorksView(View):
             except:
                 pass
 
-# Stats view with toggle buttons
 class StatsView(View):
-    def __init__(self, stat_doc):
+    def __init__(self, stat_doc, interaction):
         super().__init__(timeout=120)
         self.stat_doc = stat_doc
-        self.mode = "all"  # all, daily, weekly, monthly
+        self.mode = "all"
         self.message = None
+        self.interaction = interaction  # keep for guild info
 
     def build_embed(self):
         doc = self.stat_doc
         if not doc:
             return discord.Embed(title="لا توجد إحصائيات", color=discord.Color.red())
 
-        currency = SETTINGS.get("currency", "$")
+        currency = SETTINGS.get("currency", "$") or "$"
         if self.mode == "daily":
             d = doc.get("daily", {"entries":0, "amount":0})
             title = "📊 إحصائيات اليوم"
@@ -302,7 +298,7 @@ class StatsView(View):
             entries = m["entries"]
             amount = m["amount"]
             fields = {"الفصول": entries, "المبلغ": format_currency(amount)}
-        else:  # all
+        else:
             title = "📊 إحصائيات شاملة"
             total_entries = doc.get("total_entries", 0)
             total_amount = doc.get("total_amount", 0)
@@ -324,12 +320,8 @@ class StatsView(View):
 
             if top_members:
                 top_list = []
-                records = asyncio.get_event_loop().run_until_complete(load_records())  # careful, but we assume records loaded already
-                # Better to pass records or fetch outside. We'll adjust to accept records externally.
                 for i, (uid, s) in enumerate(top_members[:5], 1):
                     uid_int = int(uid)
-                    username_hint = None
-                    # This needs guild object; we'll store interaction.guild from command.
                     top_list.append(f"{i}. <@{uid_int}> - {format_currency(s['total_amount'])} ({s['total_entries']} فصل)")
                 embed.add_field(name="🏆 أفضل 5 أعضاء", value="\n".join(top_list), inline=False)
 
@@ -376,18 +368,17 @@ class StatsView(View):
             self.stat_doc = new_doc
         await self.update_message(interaction)
 
-# Personal works view with sorting and actions
 class MyWorksView(View):
     def __init__(self, works, bonuses, deductions, records, user_id, display_name, ctx_interaction):
         super().__init__(timeout=180)
-        self.works = works  # dict work_name -> list of entries
+        self.works = works
         self.bonuses = bonuses
         self.deductions = deductions
         self.records = records
         self.user_id = user_id
         self.display_name = display_name
-        self.ctx_interaction = ctx_interaction  # original interaction for followup
-        self.sort_order = "amount_desc"  # amount_desc, amount_asc, name_asc, chapters_desc
+        self.ctx_interaction = ctx_interaction
+        self.sort_order = "amount_desc"
         self.message = None
 
     def sorted_works_items(self):
@@ -458,14 +449,12 @@ class MyWorksView(View):
 
     @discord.ui.button(label="عرض تفاصيل الأعمال", style=discord.ButtonStyle.primary, emoji="📋")
     async def details_btn(self, interaction: discord.Interaction, button: Button):
-        # Show a new ephemeral message with per-work buttons
         view = WorkDetailButtonsView(self.works, self.user_id, self.display_name)
         embed = discord.Embed(title="اختر عملاً لعرض التفاصيل", color=discord.Color.blurple())
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @discord.ui.button(label="تقرير أسبوعي", style=discord.ButtonStyle.success, emoji="📅")
     async def weekly_report_btn(self, interaction: discord.Interaction, button: Button):
-        # Generate weekly report for this user
         records = await load_records()
         user_id = str(interaction.user.id)
         entries = records.get(user_id, [])
@@ -476,7 +465,6 @@ class MyWorksView(View):
             await interaction.response.send_message("لا يوجد فصول خلال الأسبوع الماضي.", ephemeral=True)
             return
         total = sum(e.get("total", 0) for e in week_entries)
-        # Daily breakdown
         daily_counts = {}
         for e in week_entries:
             day = datetime.fromisoformat(e["timestamp"]).strftime("%A")
@@ -511,7 +499,6 @@ class WorkDetailButtonsView(View):
             btn.callback = callback
             self.add_item(btn)
 
-# Audit log view with pagination and filter
 class AuditLogView(View):
     def __init__(self, all_logs, guild):
         super().__init__(timeout=300)
@@ -519,8 +506,8 @@ class AuditLogView(View):
         self.guild = guild
         self.current_page = 0
         self.per_page = 5
-        self.action_filter = None  # None or string
-        self.date_filter = None  # tuple (start, end)
+        self.action_filter = None
+        self.date_filter = None
         self.message = None
 
     def filtered_logs(self):
@@ -602,12 +589,11 @@ class AuditLogView(View):
 
     @discord.ui.button(label="تحديث", style=discord.ButtonStyle.success, emoji="🔄", row=3)
     async def refresh_btn(self, interaction, button):
-        logs = await audit_collection.find().sort("timestamp", -1).limit(200).to_list(length=200)  # increase limit
+        logs = await audit_collection.find().sort("timestamp", -1).limit(200).to_list(length=200)
         self.all_logs = logs
         self.current_page = 0
         await self.update_message(interaction)
 
-# Dashboard view with admin actions
 class DashboardView(View):
     def __init__(self, interaction):
         super().__init__(timeout=300)
@@ -623,7 +609,7 @@ class DashboardView(View):
         embed.add_field(name="👥 عدد الأعضاء النشطين", value=total_users, inline=True)
         embed.add_field(name="📄 عدد السجلات الكلي", value=total_entries, inline=True)
         embed.add_field(name="💰 إجمالي المبالغ", value=format_currency(total_amount), inline=True)
-        embed.add_field(name="⚙️ العملة", value=SETTINGS.get('currency', '$'), inline=True)
+        embed.add_field(name="⚙️ العملة", value=SETTINGS.get('currency', '$') or '$', inline=True)
         embed.add_field(name="🔔 قناة الإشعارات", value=f"<#{SETTINGS.get('notify_channel_id')}>" if SETTINGS.get('notify_channel_id') else "غير محدد", inline=True)
         embed.add_field(name="💾 قناة النسخ الاحتياطي", value=f"<#{SETTINGS.get('daily_backup_channel_id')}>" if SETTINGS.get('daily_backup_channel_id') else "غير محدد", inline=True)
         embed.add_field(name="⚠️ حد التنبيه", value=format_currency(SETTINGS.get('alert_threshold', 10)), inline=True)
@@ -638,7 +624,6 @@ class DashboardView(View):
                 await interaction.response.send_message(embed=embed, view=self)
                 self.message = await interaction.original_response()
             else:
-                # Should not happen
                 pass
         else:
             await self.message.edit(embed=embed, view=self)
@@ -664,7 +649,6 @@ class DashboardView(View):
         await update_stats()
         await self.update_message(interaction)
 
-# Enhanced weekly report with comparison
 class WeeklyReportView(View):
     def __init__(self, user_id, user_name, interaction):
         super().__init__(timeout=120)
@@ -691,7 +675,6 @@ class WeeklyReportView(View):
             sign = "+" if change >= 0 else ""
             embed.add_field(name="التغير عن الأسبوع الماضي", value=f"{sign}{format_currency(change)}", inline=True)
 
-        # Daily bar chart
         days = week_days_labels()
         daily_counts = {}
         for e in current_week:
@@ -719,7 +702,6 @@ class WeeklyReportView(View):
     async def compare_btn(self, interaction, button):
         await self.update_message(interaction, include_previous=True)
 
-# Edit record view with select
 class EditRecordView(View):
     def __init__(self, records, user_id, interaction):
         super().__init__(timeout=60)
@@ -727,7 +709,6 @@ class EditRecordView(View):
         self.user_id = user_id
         self.interaction = interaction
         self.message = None
-        # Create select for last 5 records
         entries = records.get(user_id, [])
         last_five = entries[-5:]
         options = []
@@ -735,9 +716,10 @@ class EditRecordView(View):
             idx = len(entries) - 1 - i
             desc = f"{entry.get('work_name','?')} - {entry.get('chapter','?')}"
             options.append(discord.SelectOption(label=f"السجل #{idx+1}", description=desc[:50], value=str(idx)))
-        if not options:
-            self.remove_item(self.select)  # hide select if no records
-        self.select.options = options
+        if options:
+            self.select.options = options
+        else:
+            self.remove_item(self.select)
 
     @discord.ui.select(placeholder="اختر السجل الذي تريد تعديله", min_values=1, max_values=1)
     async def select(self, interaction: discord.Interaction, select: Select):
@@ -748,19 +730,16 @@ class EditRecordView(View):
             return
         record = entries[idx]
         modal = EditEntryModal(record, self)
-        # Store index for modal callback
         modal.parent_view.entry_index = idx
         await interaction.response.send_modal(modal)
 
     async def update_original(self):
-        # After edit, maybe refresh the original message if exists
         if self.message:
-            await self.message.edit(view=None)  # disable view after edit
+            await self.message.edit(view=None)
 
 # ----------------------------------------------------------------------
-# Commands with full enhancements
+# Commands
 # ----------------------------------------------------------------------
-
 @bot.tree.command(name="الأعمال", description="عرض جميع الأعمال والاعضاء مع بحث وترتيب متقدم")
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
 async def projects_report(interaction: discord.Interaction):
@@ -781,11 +760,7 @@ async def stats(interaction: discord.Interaction):
     if not stat_doc:
         await interaction.response.send_message("لا توجد إحصائيات بعد.", ephemeral=True)
         return
-    view = StatsView(stat_doc)
-    view.message = None
-    # We need to pass interaction to build embed with guild info for top members.
-    # Since embed needs guild, we'll pass interaction.
-    view.interaction = interaction
+    view = StatsView(stat_doc, interaction)
     await view.update_message(interaction)
 
 @bot.tree.command(name="أعمالي", description="عرض أعمالك مجمعة مع المكافآت والخصومات وترتيب وإجراءات")
@@ -819,7 +794,6 @@ async def my_works_slash(interaction: discord.Interaction):
 @bot.command(name="أعمالي")
 @commands.cooldown(1, 5, commands.BucketType.user)
 async def my_works_text(ctx):
-    # For text command, we'll just show the embed without interactive components (fallback)
     records = await load_records()
     user_id = str(ctx.author.id)
     if user_id not in records or not records[user_id]:
