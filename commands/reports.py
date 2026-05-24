@@ -22,10 +22,8 @@ class WorkSummarySelectView(discord.ui.View):
         self.currency = currency
         self.title_prefix = title_prefix
 
-        # صورة العضو بجودة عالية
         self.avatar_url = member.display_avatar.replace(size=256).url
 
-        # القائمة المنسدلة
         self.select_menu = discord.ui.Select(
             placeholder="اختر عملاً لعرض التفاصيل...",
             options=self._build_options()
@@ -76,7 +74,6 @@ class WorkSummarySelectView(discord.ui.View):
             embed = self.build_bonuses_details_embed()
         else:
             embed = self.build_work_detail_embed(selected)
-
         self._switch_to_back_mode(embed)
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -97,7 +94,6 @@ class WorkSummarySelectView(discord.ui.View):
         back_btn.callback = self.back_callback
         self.add_item(back_btn)
 
-    # ─────── بناء الإمبيدات الجميلة ───────
     def _base_embed(self, title, color):
         embed = discord.Embed(
             title=title,
@@ -154,7 +150,6 @@ class WorkSummarySelectView(discord.ui.View):
         if type_str:
             embed.add_field(name="📊 التخصصات", value=type_str, inline=False)
 
-        # قائمة الفصول
         lines = []
         for i, e in enumerate(entries, 1):
             ch = e.get("chapter", "؟")
@@ -169,7 +164,6 @@ class WorkSummarySelectView(discord.ui.View):
             if len(text) > 1024:
                 text = "\n".join(lines[:10]) + f"\n... والمزيد ({len(lines)-10} فصل إضافي)"
             embed.add_field(name="📋 قائمة الفصول", value=text, inline=False)
-
         embed.set_footer(text=f"تفاصيل العمل • {datetime.utcnow().strftime('%Y-%m-%d')}")
         return embed
 
@@ -204,7 +198,6 @@ class WorkSummarySelectView(discord.ui.View):
             embed.add_field(name="المكافآت", value=bon, inline=False)
         else:
             embed.add_field(name="المكافآت", value="لا يوجد", inline=False)
-
         if self.deductions:
             ded = "\n".join(
                 f"🔻 {e.get('chapter','خصم')}: {self.currency}{abs(e.get('total',0)):.2f} - {e.get('notes','')}"
@@ -240,7 +233,7 @@ async def projects_report(interaction: discord.Interaction):
 
 
 # ═══════════════════════════════════════════════
-# 2️⃣ إحصائيات متقدمة
+# 2️⃣ إحصائيات متقدمة (تصميم احترافي بصورة البوت)
 # ═══════════════════════════════════════════════
 @bot.tree.command(name="احصائيات", description="عرض إحصائيات متقدمة")
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
@@ -259,34 +252,66 @@ async def stats(interaction: discord.Interaction):
     top_members = stat_doc.get("top_members", [])
     last_updated = stat_doc.get("last_updated", "غير معروف")
 
-    embed = discord.Embed(title="📊 **إحصائيات شاملة**", color=discord.Color.teal())
-    embed.add_field(name="**📄 إجمالي الفصول**", value=total_entries, inline=True)
-    embed.add_field(name="**💰 إجمالي المبالغ**",
-                    value=f"{SETTINGS.get('currency', '$')}{total_amount:.2f}", inline=True)
-
-    type_lines = "\n".join(
-        [f"**{k.replace('_',' ').title()}:** {v}" for k, v in type_counts.items()]
+    # إعداد الإمبيد الأساسي بصورة البوت
+    bot_member = interaction.guild.me
+    embed = discord.Embed(
+        title="📊 **لوحة الإحصائيات الشاملة**",
+        color=discord.Color.teal(),
+        timestamp=datetime.utcnow()
     )
-    embed.add_field(name="**📊 تفصيل التخصصات**", value=type_lines, inline=False)
+    embed.set_author(
+        name=bot_member.display_name,
+        icon_url=bot_member.display_avatar.url
+    )
+    embed.set_thumbnail(url=bot_member.display_avatar.replace(size=256).url)
 
+    # قسم الإجماليات الرئيسية
     embed.add_field(
-        name="**📅 اليوم**",
-        value=f"فصول: {daily['entries']}\nالمبلغ: {SETTINGS.get('currency', '$')}{daily['amount']:.2f}",
+        name="**📄 إجمالي الفصول**",
+        value=f"```py\n{total_entries}```",
         inline=True
     )
     embed.add_field(
-        name="**📆 هذا الأسبوع**",
-        value=f"فصول: {weekly['entries']}\nالمبلغ: {SETTINGS.get('currency', '$')}{weekly['amount']:.2f}",
+        name="**💰 إجمالي المبالغ**",
+        value=f"```css\n{SETTINGS.get('currency', '$')}{total_amount:,.2f}```",
         inline=True
     )
     embed.add_field(
-        name="**📆 هذا الشهر**",
-        value=f"فصول: {monthly['entries']}\nالمبلغ: {SETTINGS.get('currency', '$')}{monthly['amount']:.2f}",
+        name="**👥 الأعضاء النشطون**",
+        value=f"```yaml\n{len(stat_doc.get('top_members', []))}```",
         inline=True
     )
 
+    # تفصيل التخصصات بشكل أعمدة
+    type_lines = ""
+    for k, v in type_counts.items():
+        pct = (v / total_entries * 100) if total_entries else 0
+        bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+        type_lines += f"**{k.replace('_',' ').title()}**: `{v:>4}` {bar}\n"
+    if type_lines:
+        embed.add_field(
+            name="**📊 تفصيل التخصصات**",
+            value=type_lines,
+            inline=False
+        )
+
+    # المؤشرات الزمنية بشكل عصري
+    time_fields = [
+        ("📅 اليوم", daily["entries"], daily["amount"]),
+        ("📆 الأسبوع", weekly["entries"], weekly["amount"]),
+        ("📅 الشهر", monthly["entries"], monthly["amount"])
+    ]
+    for name, ents, amt in time_fields:
+        embed.add_field(
+            name=f"**{name}**",
+            value=f"📑 الفصول: `{ents}`\n💰 المبلغ: `{SETTINGS.get('currency', '$')}{amt:,.2f}`",
+            inline=True
+        )
+
+    # أفضل الأعضاء بميداليات
     if top_members:
         top_list = ""
+        medals = ["🥇", "🥈", "🥉"]
         records = await load_records()
         for i, (uid, stats_data) in enumerate(top_members[:5], 1):
             uid_int = int(uid)
@@ -297,16 +322,29 @@ async def stats(interaction: discord.Interaction):
                         username_hint = e["username"]
                         break
             display = format_member_display(interaction.guild, uid_int, username_hint)
+            medal = medals[i-1] if i <= 3 else "🏅"
             top_list += (
-                f"{i}. {display} - "
-                f"{stats_data['total_amount']:.2f} {SETTINGS.get('currency', '$')} "
-                f"({stats_data['total_entries']} فصل)\n"
+                f"{medal} `{i}.` {display}\n"
+                f"┗ 💰 {stats_data['total_amount']:,.2f} {SETTINGS.get('currency', '$')} | 📑 {stats_data['total_entries']} فصل\n"
             )
-        embed.add_field(name="**🏆 أفضل 5 أعضاء**", value=top_list, inline=False)
+        embed.add_field(
+            name="**🏆 أفضل الأعضاء**",
+            value=top_list,
+            inline=False
+        )
 
-    embed.set_footer(
-        text=f"آخر تحديث: {last_updated[:19] if last_updated != 'غير معروف' else last_updated}"
-    )
+    # تذييل مع وقت التحديث الأخير
+    if last_updated != "غير معروف":
+        try:
+            updated_time = datetime.fromisoformat(last_updated)
+            relative = f"<t:{int(updated_time.timestamp())}:R>"
+            footer = f"🕒 آخر تحديث: {relative}"
+        except:
+            footer = f"🕒 آخر تحديث: {last_updated[:19]}"
+    else:
+        footer = "🕒 آخر تحديث: غير معروف"
+    embed.set_footer(text=footer, icon_url=bot_member.display_avatar.url)
+
     await interaction.response.send_message(embed=embed)
 
 
@@ -329,7 +367,7 @@ async def my_works_slash(interaction: discord.Interaction):
     works, bonuses, deductions = _categorize_records(records[user_id])
     view = WorkSummarySelectView(
         works, bonuses, deductions,
-        member=interaction.user,          # ⬅️ تمرير العضو للحصول على صورته
+        member=interaction.user,
         user_id=user_id,
         currency=SETTINGS.get('currency', '$'),
         title_prefix="💼 اللوحة الشخصية •"
@@ -379,7 +417,7 @@ async def show_work_slash(interaction: discord.Interaction, member: discord.Memb
     works, bonuses, deductions = _categorize_records(records[user_id])
     view = WorkSummarySelectView(
         works, bonuses, deductions,
-        member=target,                    # ⬅️ صورة العضو المستهدف
+        member=target,
         user_id=user_id,
         currency=SETTINGS.get('currency', '$'),
         title_prefix="📊 ملخص شغل"
@@ -410,7 +448,6 @@ async def show_work_text(ctx, member: discord.Member = None):
     await ctx.send(embed=embed, view=view)
 
 
-# ── دالة مساعدة لتصنيف السجلات ──
 def _categorize_records(entries):
     works = {}
     bonuses = []
