@@ -379,3 +379,19 @@ class ConfirmActionView(discord.ui.View):
     @discord.ui.button(label="إلغاء", style=discord.ButtonStyle.secondary)
     async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content="تم إلغاء العملية.", view=None)
+
+
+# ----------------------------------------------------------------------
+# NEW: Helper to get the correct price for a specialty in a specific work
+# ----------------------------------------------------------------------
+async def get_specialty_price(work_name: str, specialty: str) -> float:
+    """
+    Return the price for a specialty in the given work.
+    If the work has a 'custom_prices' dictionary and the specialty exists in it,
+    return that custom price. Otherwise, fall back to the global PRICES dictionary.
+    """
+    work = await get_work(work_name)
+    if work and "custom_prices" in work and specialty in work["custom_prices"]:
+        return work["custom_prices"][specialty]
+    # Fallback to global price (from PRICES loaded from specialties settings)
+    return PRICES.get(specialty, 0.0)
