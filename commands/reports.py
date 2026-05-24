@@ -20,7 +20,7 @@ class WorkSummarySelectView(discord.ui.View):
         self.deductions = deductions
         self.member = member
         self.user_id = user_id
-        self.currency = currency
+        self.currency = currency or '$'
         self.title_prefix = title_prefix
         self.avatar_url = member.display_avatar.replace(size=256).url
 
@@ -211,14 +211,14 @@ class WorkSummarySelectView(discord.ui.View):
 
 
 # ═══════════════════════════════════════════════════
-# 📊 عارض الإحصائيات التفاعلي (أزرار + قوائم منسدلة)
+# 📊 عارض الإحصائيات التفاعلي (أزرار + قوائم منسدلة) - مُصحح
 # ═══════════════════════════════════════════════════
 class StatsView(discord.ui.View):
     def __init__(self, stat_doc, bot_member, currency, guild: discord.Guild):
         super().__init__(timeout=300)
         self.stat_doc = stat_doc
         self.bot_member = bot_member
-        self.currency = currency
+        self.currency = currency if currency else '$'
         self.guild = guild
         self.avatar_url = bot_member.display_avatar.replace(size=256).url
         self.current_page = "overview"
@@ -278,7 +278,7 @@ class StatsView(discord.ui.View):
     def _overview_embed(self):
         total_entries = self.stat_doc.get("total_entries", 0)
         total_amount = self.stat_doc.get("total_amount", 0)
-        active = len(self.stat_doc.get("top_members", []))
+        active = len(self._get_top_members_dict())
         embed = self._base_embed("📊 لوحة الإحصائيات • النظرة العامة", discord.Color.teal())
         embed.add_field(name="📄 إجمالي الفصول", value=f"```py\n{total_entries}```", inline=True)
         embed.add_field(name="💰 إجمالي المبالغ",
@@ -326,7 +326,6 @@ class StatsView(discord.ui.View):
             value=f"📑 `{monthly['entries']}` فصل\n💰 `{self.currency}{monthly['amount']:,.2f}`",
             inline=True
         )
-        # ➕ الإجمالي الكلي
         embed.add_field(
             name="🌐 الإجمالي الكلي (منذ البداية)",
             value=f"📑 `{total_entries}` فصل\n💰 `{self.currency}{total_amount:,.2f}`",
@@ -335,12 +334,27 @@ class StatsView(discord.ui.View):
         embed.set_footer(text="إحصائيات تراكمية لنفس اليوم / الأسبوع / الشهر")
         return embed
 
+    # ── helper لاستخراج top_members كـ dict مهما كان الشكل ──
+    def _get_top_members_dict(self):
+        data = self.stat_doc.get("top_members", {})
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, list):
+            result = {}
+            for item in data:
+                if isinstance(item, (list, tuple)) and len(item) == 2:
+                    result[str(item[0])] = item[1]
+                elif isinstance(item, dict) and 'user_id' in item:
+                    # بيانات بشكل {user_id: ..., total_amount: ...}
+                    result[str(item['user_id'])] = item
+            return result
+        return {}
+
     # ── نظام "الأفضل" التفاعلي ──
     async def _enter_top_mode(self, interaction: discord.Interaction):
         self.clear_items()
         self.current_page = "top"
 
-        # قائمة اختيار التصنيف
         options = [
             discord.SelectOption(label="الأفضل عاماً (إجمالي المبلغ)", value="amount", emoji="💰"),
             discord.SelectOption(label="الأفضل في الفصول (العدد)", value="chapters", emoji="📑"),
@@ -354,7 +368,6 @@ class StatsView(discord.ui.View):
         self.top_filter_select.callback = self._top_filter_selected
         self.add_item(self.top_filter_select)
 
-        # زر رجوع
         self.back_from_top_btn = discord.ui.Button(label="🔙 رجوع", style=discord.ButtonStyle.secondary, row=1)
         self.back_from_top_btn.callback = self._back_from_top
         self.add_item(self.back_from_top_btn)
@@ -365,29 +378,30 @@ class StatsView(discord.ui.View):
     async def _top_filter_selected(self, interaction: discord.Interaction):
         value = interaction.data['values'][0]
         if value == "by_type":
-            # إظهار قائمة التخصصات
             self.clear_items()
             type_counts = self.stat_doc.get("type_counts", {})
             if not type_counts:
                 embed = self._base_embed("🏆 الأفضل في تخصص", discord.Color.gold())
                 embed.description = "لا توجد بيانات تخصصات."
-                self._add_back_to_top(embed)
+                back_btn = discord.ui.Button(label="🔙 عودة", style=discord.ButtonStyle.secondary, row=1)
+                back_btn.callback = self._enter_top_mode
+                self.add_item(back_btn)
                 await interaction.response.edit_message(embed=embed, view=self)
                 return
 
             type_options = [
                 discord.SelectOption(label=k.replace('_',' ').title(), value=k, emoji="📊")
                 for k in type_counts.keys()
-            ]
+            ][:25]
             self.type_select = discord.ui.Select(
                 placeholder="اختر التخصص...",
-                options=type_options[:25],
+                options=type_options,
                 row=0
             )
             self.type_select.callback = self._type_specific_selected
             self.add_item(self.type_select)
 
-            self.back_to_filter_btn = discord.ui.Button(label="🔙 عودة", style=discord.ButtonStyle.secondary, row=1)
+            self.back_to_filter_btn = discord.ui.Button(label="🔙 عودة للتصنيفات", style=discord.ButtonStyle.secondary, row=1)
             self.back_to_filter_btn.callback = self._enter_top_mode
             self.add_item(self.back_to_filter_btn)
 
@@ -396,7 +410,6 @@ class StatsView(discord.ui.View):
             await interaction.response.edit_message(embed=embed, view=self)
         else:
             embed = await self._build_top_embed(value)
-            # إعادة بناء الواجهة مع القائمة المنسدلة الأصلية
             self.clear_items()
             options = [
                 discord.SelectOption(label="الأفضل عاماً (إجمالي المبلغ)", value="amount", emoji="💰"),
@@ -420,16 +433,15 @@ class StatsView(discord.ui.View):
     async def _type_specific_selected(self, interaction: discord.Interaction):
         work_type = interaction.data['values'][0]
         embed = await self._build_top_embed("by_type", work_type)
-        # العودة لواجهة التصنيف الرئيسية مع بقاء خيار التخصص
         self.clear_items()
         type_counts = self.stat_doc.get("type_counts", {})
         type_options = [
             discord.SelectOption(label=k.replace('_',' ').title(), value=k, emoji="📊")
             for k in type_counts.keys()
-        ]
+        ][:25]
         self.type_select = discord.ui.Select(
             placeholder="اختر التخصص...",
-            options=type_options[:25],
+            options=type_options,
             row=0
         )
         self.type_select.callback = self._type_specific_selected
@@ -448,14 +460,10 @@ class StatsView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def _build_top_embed(self, sort_by="amount", work_type=None):
-        """
-        sort_by: 'amount' (إجمالي المبلغ), 'chapters' (عدد الفصول), 'by_type' (تخصص محدد)
-        """
         guild = self.guild
         records = await load_records()
-        all_members = self.stat_doc.get("top_members", {})
+        all_members = self._get_top_members_dict()
 
-        # بناء قائمة (user_id, stats)
         members_stats = []
         for uid, stats in all_members.items():
             members_stats.append((uid, stats))
@@ -467,7 +475,6 @@ class StatsView(discord.ui.View):
             sorted_list = sorted(members_stats, key=lambda x: x[1].get('total_entries', 0), reverse=True)
             title = "📑 أفضل 10 أعضاء (عدد الفصول)"
         elif sort_by == "by_type" and work_type:
-            # نحتاج لجلب إحصائيات التخصص من السجلات
             filtered = []
             for uid, stats in members_stats:
                 uid_str = str(uid)
@@ -494,11 +501,10 @@ class StatsView(discord.ui.View):
             uid_int = int(uid)
             member = guild.get_member(uid_int)
             if member:
-                display = member.mention  # ✅ المنشن الحقيقي
+                display = member.mention
             else:
-                # عضو غادر السيرفر – نظهر اسم مخزن أو ID
-                fallback_name = None
                 uid_str = str(uid)
+                fallback_name = None
                 if uid_str in records:
                     for e in records[uid_str]:
                         if e.get("username"):
@@ -558,7 +564,7 @@ async def stats(interaction: discord.Interaction):
         return
 
     bot_member = interaction.guild.me
-    currency = SETTINGS.get('currency', '$')
+    currency = SETTINGS.get('currency', '$') or '$'
     view = StatsView(stat_doc, bot_member, currency, interaction.guild)
     embed = view._overview_embed()
     await interaction.response.send_message(embed=embed, view=view)
