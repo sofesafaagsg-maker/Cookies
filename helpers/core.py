@@ -57,6 +57,35 @@ async def get_work(work_name: str) -> dict | None:
             return w
     return None
 
+def is_work_isolated(work: dict | None) -> bool:
+    """Return True when a work is administratively isolated from visible calculations."""
+    return bool(work and work.get("isolated", False))
+
+def get_isolated_work_names(works: list) -> set[str]:
+    """Return names of works that must be hidden from salary/member calculations."""
+    return {w.get("name") for w in works if is_work_isolated(w) and w.get("name")}
+
+def filter_visible_entries(entries: list, isolated_work_names: set[str]) -> list:
+    """Hide entries that belong to isolated works, while keeping bonuses/deductions visible."""
+    return [
+        entry for entry in entries
+        if not entry.get("work_name") or entry.get("work_name") not in isolated_work_names
+    ]
+
+async def load_visible_records() -> dict:
+    """Load records after excluding entries of isolated works from visible views/calculations."""
+    records = await load_records()
+    works = await load_works()
+    isolated = get_isolated_work_names(works)
+    if not isolated:
+        return records
+    visible = {}
+    for user_id, entries in records.items():
+        filtered = filter_visible_entries(entries, isolated)
+        if filtered:
+            visible[user_id] = filtered
+    return visible
+
 def filter_paid_chapters(work: dict, chapters_list: List[str]):
     """Returns (paid_chapters, free_count) based on work's paid_start."""
     if work.get("paid_start") is None:
@@ -243,7 +272,7 @@ async def log_unauthorized(user_id, command_name):
 
 async def update_stats():
     """Update comprehensive stats."""
-    records = await load_records()
+    records = await load_visible_records()
     total_entries = sum(len(entries) for entries in records.values())
     total_amount = 0
     type_counts = {}

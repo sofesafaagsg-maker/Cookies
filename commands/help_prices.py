@@ -58,6 +58,7 @@ class HelpView(discord.ui.View):
             embed.add_field(name="▸ `/شغل` أو `!شغل`", value="عرض كشف الحساب الخاص بعضو آخر عبر الإشارة إليه (منشن).", inline=False)
             embed.add_field(name="▸ `/اسعار` أو `!اسعار`", value="عرض قائمة أسعار التخصصات الحالية المعتمدة في السيرفر.", inline=False)
             embed.add_field(name="▸ `/الأعمال`", value="عرض قائمة الاعمال المعتمدة والمساهمين فيها بنظام صفحات.", inline=False)
+            embed.add_field(name="▸ `/اعضاء_تخصص`", value="للمشرفين: عرض أعضاء تخصص معين ومبالغهم قبل الصرف.", inline=False)
             embed.add_field(name="▸ `/تعديل`", value="تعديل تفاصيل آخر سجل قمت بإضافته مباشرة في حال حدوث خطأ.", inline=False)
             embed.set_footer(text="يمكنك اختيار 'الصفحة الرئيسية' من القائمة للعودة")
 
@@ -75,6 +76,9 @@ class HelpView(discord.ui.View):
             embed.add_field(name="▸ `/تحديد_قنوات`", value="تحديد الغرف المسموح للبوت باستقبال أوامر التسجيل داخلها.", inline=False)
             embed.add_field(name="▸ `/حذف`", value="فتح قائمة الاختيارات لحذف سجلات عضو، أو عمل، أو فصل معين.", inline=False)
             embed.add_field(name="▸ `/حذف_كل_الأعمال`", value="مسح قائمة الاعمال النشطة بالكامل مع حماية السجلات الماليّة.", inline=False)
+            embed.add_field(name="▸ `/الأعضاء`", value="عرض كل الأعضاء المسجلين مع الأموال والسجلات والبحث والصفحات.", inline=False)
+            embed.add_field(name="▸ `/تقرير_دفع`", value="تقرير دفع شهري مفصل لكل عضو مع صفحات وتصدير Excel.", inline=False)
+            embed.add_field(name="▸ `/عزل_عمل` و `/استرجاع_عمل`", value="تأجيل احتساب عمل كامل أو إعادته دون حذف سجلاته.", inline=False)
             # الأوامر الجديدة لإدارة الأسعار المخصصة للأعمال
             embed.add_field(name="▸ `/تخصيص_سعر_عمل`", value="تخصيص سعر استثنائي لتخصص معين داخل عمل محدد (يسري فقط على هذا العمل).", inline=False)
             embed.add_field(name="▸ `/الغاء_تخصيص_عمل`", value="إزالة جميع التخصيصات السعرية من عمل ليعود إلى الأسعار العامة.", inline=False)

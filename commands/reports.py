@@ -6,6 +6,7 @@ from state import bot
 from helpers.core import *
 from helpers.core import make_embed
 from views.paginators import WorkDetailsView, WorksPaginator, get_works_info
+from tasks.lifecycle import specialty_autocomplete
 
 
 # ═══════════════════════════════════════════════════
@@ -229,7 +230,7 @@ def get_top_members_dict(stat_doc):
     return {}
 
 async def build_top_embed(guild: discord.Guild, currency, stat_doc, sort_by="amount", work_type=None, limit=10):
-    records = await load_records()
+    records = await load_visible_records()
     all_members = get_top_members_dict(stat_doc)
     members_stats = [(uid, stats) for uid, stats in all_members.items()]
 
@@ -705,6 +706,53 @@ async def top_members(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, view=view)
 
 
+@bot.tree.command(name="الأعضاء", description="عرض جميع الأعضاء المسجلين مع أموالهم وسجلاتهم")
+@app_commands.describe(بحث="بحث اختياري باسم العضو أو معرفه")
+@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
+async def registered_members(interaction: discord.Interaction, بحث: str = None):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "الأعضاء")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+
+    records = await load_visible_records()
+    rows = _build_member_finance_rows(records, interaction.guild, بحث)
+    if not rows:
+        await interaction.response.send_message("📭 لا توجد نتائج مطابقة للأعضاء المسجلين.", ephemeral=True)
+        return
+    title = "👥 الأعضاء المسجلون والمستحقات"
+    if بحث:
+        title += f" • بحث: {بحث}"
+    view = MembersFinancePaginator(rows, interaction.guild, SETTINGS.get('currency', '$'), title)
+    await interaction.response.send_message(embed=view.get_embed(), view=view)
+
+
+@bot.tree.command(name="اعضاء_تخصص", description="عرض أعضاء تخصص معين مع مستحقاتهم وأعمالهم")
+@app_commands.autocomplete(التخصص=specialty_autocomplete)
+@app_commands.describe(التخصص="التخصص المطلوب عرضه")
+@app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
+async def specialty_members(interaction: discord.Interaction, التخصص: str):
+    if not is_admin(interaction):
+        await log_unauthorized(interaction.user.id, "اعضاء_تخصص")
+        await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
+        return
+
+    specialty = map_type(التخصص)
+    records = await load_visible_records()
+    filtered_records = {}
+    for user_id, entries in records.items():
+        matched = [entry for entry in entries if entry.get("work_type") == specialty]
+        if matched:
+            filtered_records[user_id] = matched
+    rows = _build_member_finance_rows(filtered_records, interaction.guild)
+    rows.sort(key=lambda row: (row["chapters"], row["net_total"]), reverse=True)
+    if not rows:
+        await interaction.response.send_message(f"📭 لا يوجد أعضاء مسجلون في تخصص `{specialty}`.", ephemeral=True)
+        return
+    view = SpecialtyMembersPaginator(rows, interaction.guild, SETTINGS.get('currency', '$'), specialty)
+    await interaction.response.send_message(embed=view.get_embed(), view=view)
+
+
 # ═══════════════════════════════════════════════
 # 3️⃣ أعمالي
 # ═══════════════════════════════════════════════
@@ -715,7 +763,7 @@ async def my_works_slash(interaction: discord.Interaction):
         await interaction.response.send_message("❌ القناة غير مسموحة.", ephemeral=True)
         return
 
-    records = await load_records()
+    records = await load_visible_records()
     user_id = str(interaction.user.id)
     if user_id not in records or not records[user_id]:
         await interaction.response.send_message("📭 ليس لديك أي شغل.", ephemeral=True)
@@ -736,7 +784,7 @@ async def my_works_slash(interaction: discord.Interaction):
 @bot.command(name="أعمالي")
 @commands.cooldown(1, 5, commands.BucketType.user)
 async def my_works_text(ctx):
-    records = await load_records()
+    records = await load_visible_records()
     user_id = str(ctx.author.id)
     if user_id not in records or not records[user_id]:
         await ctx.send("📭 ليس لديك أي شغل.")
@@ -765,7 +813,7 @@ async def show_work_slash(interaction: discord.Interaction, member: discord.Memb
         return
 
     target = member or interaction.user
-    records = await load_records()
+    records = await load_visible_records()
     user_id = str(target.id)
     if user_id not in records or not records[user_id]:
         await interaction.response.send_message(f"📭 لا يوجد شغل للعضو {target.mention}.", ephemeral=True)
@@ -787,7 +835,7 @@ async def show_work_slash(interaction: discord.Interaction, member: discord.Memb
 @commands.cooldown(1, 5, commands.BucketType.user)
 async def show_work_text(ctx, member: discord.Member = None):
     member = member or ctx.author
-    records = await load_records()
+    records = await load_visible_records()
     user_id = str(member.id)
     if user_id not in records or not records[user_id]:
         await ctx.send(f"📭 ما عندي أي شغل للعضو {member.mention}.")
@@ -821,6 +869,156 @@ def _categorize_records(entries):
     return works, bonuses, deductions
 
 
+def _member_name_from_entries(entries):
+    for entry in entries:
+        if entry.get("username"):
+            return entry.get("username")
+    return None
+
+
+def _build_member_finance_rows(records, guild, search: str = None):
+    rows = []
+    search_text = search.lower().strip() if search else None
+    for user_id, entries in records.items():
+        works, bonuses, deductions = _categorize_records(entries)
+        work_entries = [entry for work_entries in works.values() for entry in work_entries]
+        total_works = sum(entry.get("total", 0) for entry in work_entries)
+        total_bonus = sum(entry.get("total", 0) for entry in bonuses)
+        total_deduct = sum(abs(entry.get("total", 0)) for entry in deductions)
+        net_total = total_works + total_bonus - total_deduct
+        username_hint = _member_name_from_entries(entries)
+        display = format_member_display(guild, int(user_id), username_hint)
+        mention = f"<@{user_id}>"
+        if search_text and search_text not in display.lower() and search_text not in user_id:
+            continue
+        work_counts = sorted(
+            ((work_name, len(work_entries), sum(e.get("total", 0) for e in work_entries)) for work_name, work_entries in works.items()),
+            key=lambda item: (item[1], item[2]),
+            reverse=True
+        )
+        type_counts = defaultdict(int)
+        for entry in work_entries:
+            type_counts[entry.get("work_type", "غير محدد")] += 1
+        rows.append({
+            "user_id": user_id,
+            "display": display,
+            "mention": mention,
+            "records": len(entries),
+            "chapters": len(work_entries),
+            "works_count": len(works),
+            "total_works": total_works,
+            "bonuses": total_bonus,
+            "deductions": total_deduct,
+            "net_total": net_total,
+            "work_counts": work_counts,
+            "type_counts": dict(type_counts),
+        })
+    return sorted(rows, key=lambda row: (row["net_total"], row["chapters"]), reverse=True)
+
+
+class MembersFinancePaginator(discord.ui.View):
+    def __init__(self, rows, guild, currency, title="👥 الأعضاء والمستحقات", per_page=6):
+        super().__init__(timeout=180)
+        self.rows = rows
+        self.guild = guild
+        self.currency = currency or '$'
+        self.title = title
+        self.per_page = per_page
+        self.current_page = 0
+        self.total_pages = max(1, (len(rows) + per_page - 1) // per_page)
+        self._update_buttons()
+
+    def _update_buttons(self):
+        self.clear_items()
+        if self.total_pages > 1:
+            prev_btn = discord.ui.Button(label="◀ السابق", style=discord.ButtonStyle.primary, disabled=self.current_page == 0)
+            next_btn = discord.ui.Button(label="التالي ▶", style=discord.ButtonStyle.primary, disabled=self.current_page >= self.total_pages - 1)
+            prev_btn.callback = self.previous_page
+            next_btn.callback = self.next_page
+            self.add_item(prev_btn)
+            self.add_item(next_btn)
+        page_btn = discord.ui.Button(label=f"صفحة {self.current_page + 1} من {self.total_pages}", style=discord.ButtonStyle.secondary, disabled=True)
+        self.add_item(page_btn)
+
+    def get_embed(self):
+        start = self.current_page * self.per_page
+        page_rows = self.rows[start:start + self.per_page]
+        embed = discord.Embed(title=self.title, color=discord.Color.green(), timestamp=datetime.utcnow())
+        total_amount = sum(row["net_total"] for row in self.rows)
+        total_chapters = sum(row["chapters"] for row in self.rows)
+        embed.description = f"**عدد الأعضاء:** {len(self.rows)} • **الفصول المحتسبة:** {total_chapters} • **الصافي:** {self.currency}{total_amount:.2f}"
+        for index, row in enumerate(page_rows, start + 1):
+            works_preview = "، ".join(
+                f"{name} ({count})" for name, count, _total in row["work_counts"][:3]
+            ) or "لا توجد أعمال"
+            if len(row["work_counts"]) > 3:
+                works_preview += f"، +{len(row['work_counts']) - 3}"
+            value = (
+                f"{row['mention']}\n"
+                f"📑 الفصول: **{row['chapters']}** | السجلات: **{row['records']}** | الأعمال: **{row['works_count']}**\n"
+                f"💰 الأعمال: {self.currency}{row['total_works']:.2f} | 🎁 مكافآت: {self.currency}{row['bonuses']:.2f} | 🔻 خصومات: {self.currency}{row['deductions']:.2f}\n"
+                f"💵 الصافي: **{self.currency}{row['net_total']:.2f}**\n"
+                f"📚 أبرز الأعمال: {works_preview}"
+            )
+            embed.add_field(name=f"{index}. {row['display']}", value=value[:1024], inline=False)
+        embed.set_footer(text="الأعمال المعزولة مستبعدة من هذه الأرقام تلقائياً")
+        return embed
+
+    async def previous_page(self, interaction: discord.Interaction):
+        self.current_page -= 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.get_embed(), view=self)
+
+    async def next_page(self, interaction: discord.Interaction):
+        self.current_page += 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.get_embed(), view=self)
+
+
+class SpecialtyMembersPaginator(MembersFinancePaginator):
+    def __init__(self, rows, guild, currency, specialty, per_page=7):
+        self.specialty = specialty
+        super().__init__(rows, guild, currency, f"🛠️ أعضاء تخصص: {specialty}", per_page)
+
+    def get_embed(self):
+        start = self.current_page * self.per_page
+        page_rows = self.rows[start:start + self.per_page]
+        embed = discord.Embed(title=self.title, color=discord.Color.blue(), timestamp=datetime.utcnow())
+        total_amount = sum(row["net_total"] for row in self.rows)
+        total_chapters = sum(row["chapters"] for row in self.rows)
+        embed.description = f"**عدد الأعضاء:** {len(self.rows)} • **الفصول:** {total_chapters} • **الإجمالي:** {self.currency}{total_amount:.2f}"
+        for index, row in enumerate(page_rows, start + 1):
+            works_preview = "، ".join(
+                f"{name} ({count})" for name, count, _total in row["work_counts"][:4]
+            ) or "لا توجد أعمال"
+            value = (
+                f"{row['mention']}\n"
+                f"📑 فصول التخصص: **{row['chapters']}** | 📚 الأعمال: **{row['works_count']}**\n"
+                f"💵 المستحق: **{self.currency}{row['net_total']:.2f}**\n"
+                f"📖 الأعمال: {works_preview}"
+            )
+            embed.add_field(name=f"{index}. {row['display']}", value=value[:1024], inline=False)
+        embed.set_footer(text="مرتّب من الأكثر فصولاً إلى الأقل • الأعمال المعزولة مستبعدة")
+        return embed
+
+
+class DashboardQuickLinks(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
+
+    @discord.ui.button(label="👥 قائمة الأعضاء", style=discord.ButtonStyle.primary)
+    async def members_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("استخدم الأمر `/الأعضاء` لعرض كل الأعضاء والمستحقات مع الصفحات والبحث.", ephemeral=True)
+
+    @discord.ui.button(label="💳 تقرير الدفع", style=discord.ButtonStyle.success)
+    async def payment_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("استخدم الأمر `/تقرير_دفع` لمراجعة تقرير الدفع الشهري وتصديره.", ephemeral=True)
+
+    @discord.ui.button(label="🛠️ أعضاء تخصص", style=discord.ButtonStyle.secondary)
+    async def specialty_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("استخدم الأمر `/اعضاء_تخصص` ثم اختر التخصص المطلوب لمراجعة أعضائه قبل الصرف.", ephemeral=True)
+
+
 # ═══════════════════════════════════════════════
 # 5️⃣ لوحة التحكم
 # ═══════════════════════════════════════════════
@@ -832,10 +1030,16 @@ async def dashboard(interaction: discord.Interaction):
         await interaction.response.send_message("❌ ما عندك صلاحية.", ephemeral=True)
         return
 
-    records = await load_records()
+    records = await load_visible_records()
     total_users = len(records)
     total_entries = sum(len(entries) for entries in records.values())
     total_amount = sum(sum(e.get("total", 0) for e in entries) for entries in records.values())
+    member_rows = _build_member_finance_rows(records, interaction.guild)
+    top_members_preview = "\n".join(
+        f"• {row['mention']} — {row['chapters']} فصول — {SETTINGS.get('currency', '$')}{row['net_total']:.2f}"
+        for row in member_rows[:5]
+    ) or "لا توجد بيانات أعضاء."
+    isolated_count = len(get_isolated_work_names(await load_works()))
 
     embed = make_embed("admin", "🖥️ لوحة التحكم الرئيسية", "مركز إدارة شامل للمشرفين.",
                        interaction, interaction.user)
@@ -865,7 +1069,20 @@ async def dashboard(interaction: discord.Interaction):
         value=f"يوم {payment_day} الساعة {SETTINGS.get('payment_hour', 0)}" if payment_day else "غير محدد",
         inline=True
     )
-    await interaction.response.send_message(embed=embed)
+    embed.add_field(
+        name="**👥 قسم الأعضاء والمستحقات**",
+        value=(
+            f"أعلى الأعضاء حالياً:\n{top_members_preview}\n\n"
+            "وصول سريع: `/الأعضاء` لكل الأعضاء، `/تقرير_دفع` لتقرير الشهر، `/اعضاء_تخصص` لمراجعة تخصص محدد."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="**⏸️ الأعمال المعزولة**",
+        value=f"{isolated_count} عمل مستبعد من الحسابات الظاهرة" if isolated_count else "لا يوجد أعمال معزولة",
+        inline=False
+    )
+    await interaction.response.send_message(embed=embed, view=DashboardQuickLinks())
 
 
 # ═══════════════════════════════════════════════
@@ -905,7 +1122,7 @@ async def audit_log(interaction: discord.Interaction):
 @bot.tree.command(name="تقريري", description="تقرير أسبوعي خاص بك")
 @app_commands.checks.cooldown(1, 5, key=lambda i: (i.user.id, i.command.qualified_name))
 async def my_weekly_report(interaction: discord.Interaction):
-    records = await load_records()
+    records = await load_visible_records()
     user_id = str(interaction.user.id)
     if user_id not in records:
         await interaction.response.send_message("ليس لديك أي سجلات.", ephemeral=True)
