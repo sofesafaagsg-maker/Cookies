@@ -117,7 +117,7 @@ async def send_payment_reminder(hours_before):
     if not channel:
         return
     # Gather monthly totals
-    records = await load_records()
+    records = await load_visible_records()
     month_start = datetime.utcnow().replace(day=1)
     totals = {}
     for user_id, entries in records.items():

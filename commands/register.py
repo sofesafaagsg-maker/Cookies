@@ -29,6 +29,9 @@ async def register_slash(interaction: discord.Interaction, العمل: str, ال
     if not work.get("active", True):
         await interaction.response.send_message(f"❌ العمل `{العمل}` معطل حالياً.", ephemeral=True)
         return
+    if is_work_isolated(work):
+        await interaction.response.send_message(f"⏸️ العمل `{العمل}` معزول حالياً عن التسجيل والحسابات حتى تسترجعه الإدارة.", ephemeral=True)
+        return
 
     chapters_list = parse_chapter_range(الفصول)
     if not chapters_list:
@@ -187,6 +190,9 @@ async def register_for_member(
         return
     if not work.get("active", True):
         await interaction.response.send_message(f"❌ العمل `{العمل}` معطل حالياً ولا يمكن إضافة فصول إليه.", ephemeral=True)
+        return
+    if is_work_isolated(work):
+        await interaction.response.send_message(f"⏸️ العمل `{العمل}` معزول حالياً عن التسجيل والحسابات حتى تسترجعه الإدارة.", ephemeral=True)
         return
 
     chapters_list = parse_chapter_range(الفصول)
@@ -347,6 +353,9 @@ async def analysis(ctx, *, text=None):
         return
     if not work.get("active", True):
         await ctx.send(f"❌ العمل `{work_name}` معطل حالياً.")
+        return
+    if is_work_isolated(work):
+        await ctx.send(f"⏸️ العمل `{work_name}` معزول حالياً عن التسجيل والحسابات حتى تسترجعه الإدارة.")
         return
 
     chapters_list = parse_chapter_range(chapter_str)

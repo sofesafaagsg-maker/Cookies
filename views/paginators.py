@@ -74,20 +74,26 @@ async def get_works_info(guild: discord.Guild):
     """Build list of works with their contributors."""
     approved_works = await load_works()
     records = await load_records()
+    isolated = get_isolated_work_names(approved_works)
 
-    contrib_map = defaultdict(lambda: defaultdict(int))
+    contrib_map = defaultdict(lambda: defaultdict(lambda: {"count": 0, "total": 0.0, "types": defaultdict(int)}))
     for user_id_str, entries in records.items():
         for entry in entries:
             work = entry.get("work_name")
-            if work:
-                contrib_map[work][user_id_str] += 1
+            if work and work not in isolated:
+                info = contrib_map[work][user_id_str]
+                info["count"] += 1
+                info["total"] += entry.get("total", 0)
+                info["types"][entry.get("work_type", "غير محدد")] += 1
 
     works_info = []
     for w in approved_works:
+        if is_work_isolated(w):
+            continue
         work_name = w["name"]
         contributors = contrib_map.get(work_name, {})
         members_list = []
-        for uid_str, count in contributors.items():
+        for uid_str, member_stats in contributors.items():
             uid = int(uid_str)
             username_hint = None
             if uid_str in records:
@@ -96,7 +102,8 @@ async def get_works_info(guild: discord.Guild):
                         username_hint = e["username"]
                         break
             display = format_member_display(guild, uid, username_hint)
-            members_list.append((uid, display))
+            members_list.append((uid, display, member_stats["count"], member_stats["total"], dict(member_stats["types"])))
+        members_list.sort(key=lambda item: (item[2], item[3]), reverse=True)
         works_info.append((work_name, members_list))
     return works_info
 
@@ -107,8 +114,11 @@ class MemberSelect(discord.ui.Select):
         self.guild = guild
         self.works_info_callback = works_info_callback
         options = []
-        for uid, name in members_info[:24]:
-            options.append(discord.SelectOption(label=name, value=str(uid), description="عرض فصوله في هذا العمل"))
+        for member_info in members_info[:24]:
+            uid, name = member_info[0], member_info[1]
+            count = member_info[2] if len(member_info) > 2 else 0
+            total = member_info[3] if len(member_info) > 3 else 0
+            options.append(discord.SelectOption(label=name[:100], value=str(uid), description=f"{count} فصول • {SETTINGS.get('currency', '$')}{total:.2f}"[:100]))
         options.append(discord.SelectOption(label="❌ إلغاء", value="cancel"))
         super().__init__(placeholder="اختر عضواً...", options=options)
 
@@ -117,10 +127,11 @@ class MemberSelect(discord.ui.Select):
             await interaction.response.edit_message(content="تم الإلغاء.", view=None)
             return
         user_id = int(self.values[0])
-        user_display = next((name for uid, name in self.members_info if uid == user_id), str(user_id))
+        user_display = next((info[1] for info in self.members_info if info[0] == user_id), str(user_id))
         records = await load_records()
+        isolated = get_isolated_work_names(await load_works())
         user_entries = records.get(str(user_id), [])
-        work_entries = [e for e in user_entries if e.get("work_name") == self.work_name]
+        work_entries = [e for e in user_entries if e.get("work_name") == self.work_name and e.get("work_name") not in isolated]
         if not work_entries:
             await interaction.response.send_message(f"❌ لا توجد فصول للعضو {user_display} في عمل {self.work_name}.", ephemeral=True)
             return
@@ -155,8 +166,14 @@ class WorkSelect(discord.ui.Select):
         self.guild = guild
         self.works_info_callback = works_info_callback
         options = []
-        for work_name, _ in works_info[:24]:
-            options.append(discord.SelectOption(label=work_name, value=work_name))
+        for work_name, members in works_info[:24]:
+            chapters = sum(member[2] for member in members) if members else 0
+            total = sum(member[3] for member in members) if members else 0
+            options.append(discord.SelectOption(
+                label=work_name[:100],
+                value=work_name,
+                description=f"{len(members)} أعضاء • {chapters} فصول • {SETTINGS.get('currency', '$')}{total:.2f}"[:100]
+            ))
         options.append(discord.SelectOption(label="❌ إلغاء", value="cancel"))
         super().__init__(placeholder="اختر العمل...", options=options)
 
@@ -165,7 +182,7 @@ class WorkSelect(discord.ui.Select):
             await interaction.response.edit_message(content="تم الإلغاء.", view=None)
             return
         work_name = self.values[0]
-        members_info = [(uid, name) for work, members in self.works_info if work == work_name for uid, name in members]
+        members_info = [member for work, members in self.works_info if work == work_name for member in members]
         if not members_info:
             await interaction.response.send_message(f"❌ لا يوجد مساهمين في عمل {work_name}.", ephemeral=True)
             return
@@ -176,7 +193,15 @@ class WorkSelect(discord.ui.Select):
             back_btn = discord.ui.Button(label="◀ رجوع للقائمة", style=discord.ButtonStyle.secondary)
             back_btn.callback = self.works_info_callback
             view.add_item(back_btn)
-        await interaction.response.edit_message(content=f"**اختر عضواً من عمل `{work_name}`:**", view=view)
+        summary = "\n".join(
+            f"• {member[1]} — {member[2]} فصول — {SETTINGS.get('currency', '$')}{member[3]:.2f}"
+            for member in members_info[:10]
+        )
+        if len(members_info) > 10:
+            summary += f"\n... والمزيد ({len(members_info) - 10} عضو)"
+        embed = discord.Embed(title=f"📖 أعضاء عمل: {work_name}", color=discord.Color.teal())
+        embed.add_field(name="👥 المساهمون حسب عدد الفصول", value=summary or "لا يوجد", inline=False)
+        await interaction.response.edit_message(content=None, embed=embed, view=view)
 
 class WorksPaginator(discord.ui.View):
     def __init__(self, all_works_info, guild):
@@ -225,4 +250,3 @@ class WorksPaginator(discord.ui.View):
         self.current_page += 1
         self.update_buttons()
         await interaction.response.edit_message(view=self)
-
