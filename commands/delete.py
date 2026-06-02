@@ -230,7 +230,7 @@ async def delete_work_text(ctx, member: discord.Member = None, number: int = Non
     embed.add_field(name="**المبلغ**", value=f"{SETTINGS.get('currency', '$')}{deleted.get('total', 0):.2f}", inline=True)
     await ctx.send(embed=embed)
 
-@bot.tree.command(name="حذف_الكل", description="حذف كل السجلات - للمشرفين")
+@bot.tree.command(name="حذف_الكل", description="حذف كل السجلات - للمشرفين (يستثني الأعمال المعزولة)")
 @app_commands.checks.cooldown(1, 10, key=lambda i: (i.user.id, i.command.qualified_name))
 async def delete_all_work_slash(interaction: discord.Interaction):
     if not is_admin(interaction):
@@ -240,31 +240,66 @@ async def delete_all_work_slash(interaction: discord.Interaction):
     if interaction.channel.name not in SETTINGS.get("allowed_channels", []):
         await interaction.response.send_message("❌ القناة غير مسموحة.", ephemeral=True)
         return
+
     records = await load_records()
-    total = sum(len(items) for items in records.values())
-    if total == 0:
-        await interaction.response.send_message("📭 ما فيه أي سجلات.", ephemeral=True)
+    works = await load_works()
+    isolated_names = get_isolated_work_names(works)
+
+    total_removed = 0
+    preserved_isolated = 0
+    for user_id in list(records.keys()):
+        new_entries = [e for e in records[user_id] if e.get("work_name") in isolated_names]
+        removed = len(records[user_id]) - len(new_entries)
+        total_removed += removed
+        preserved_isolated += len(new_entries)
+        if new_entries:
+            records[user_id] = new_entries
+        else:
+            del records[user_id]
+
+    if total_removed == 0:
+        await interaction.response.send_message("📭 لا توجد سجلات قابلة للحذف (جميعها معزولة أو لا سجلات).", ephemeral=True)
         return
-    records.clear()
+
     await save_records(records)
-    await log_audit("حذف_الكل", interaction.user.id, None, f"{total} سجل")
+    await log_audit("حذف_الكل", interaction.user.id, None, f"{total_removed} سجل (استثناء المعزولة: {preserved_isolated})")
     await update_stats()
-    await interaction.response.send_message(f"🗑️ تم حذف كل السجلات ({total}).")
+    msg = f"🗑️ تم حذف {total_removed} سجل."
+    if preserved_isolated > 0:
+        msg += f"\n⏸️ تم استثناء {preserved_isolated} سجل من أعمال معزولة."
+    await interaction.response.send_message(msg)
 
 @bot.command(name="حذف_الكل")
 @commands.has_permissions(manage_messages=True)
 @commands.cooldown(1, 10, commands.BucketType.user)
 async def delete_all_work_text(ctx):
     records = await load_records()
-    total = sum(len(items) for items in records.values())
-    if total == 0:
-        await ctx.send("📭 ما فيه أي سجلات.")
+    works = await load_works()
+    isolated_names = get_isolated_work_names(works)
+
+    total_removed = 0
+    preserved_isolated = 0
+    for user_id in list(records.keys()):
+        new_entries = [e for e in records[user_id] if e.get("work_name") in isolated_names]
+        removed = len(records[user_id]) - len(new_entries)
+        total_removed += removed
+        preserved_isolated += len(new_entries)
+        if new_entries:
+            records[user_id] = new_entries
+        else:
+            del records[user_id]
+
+    if total_removed == 0:
+        await ctx.send("📭 لا توجد سجلات قابلة للحذف (جميعها معزولة أو لا سجلات).")
         return
-    records.clear()
+
     await save_records(records)
-    await log_audit("حذف_الكل", ctx.author.id, None, f"{total} سجل")
+    await log_audit("حذف_الكل", ctx.author.id, None, f"{total_removed} سجل (استثناء المعزولة: {preserved_isolated})")
     await update_stats()
-    await ctx.send(f"🗑️ تم حذف كل السجلات ({total}).")
+    msg = f"🗑️ تم حذف {total_removed} سجل."
+    if preserved_isolated > 0:
+        msg += f"\n⏸️ تم استثناء {preserved_isolated} سجل من أعمال معزولة."
+    await ctx.send(msg)
 
 # ----------------------------------------------------------------------
 # NEW: /حذف_كل_الأعمال (Admin deletes all works)
