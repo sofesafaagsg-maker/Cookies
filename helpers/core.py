@@ -4,26 +4,20 @@ from collections import defaultdict
 import re
 import discord
 from discord import app_commands
-# تم إضافة DEFAULT_ALLOWED_CHANNELS هنا لحل مشكلة الانهيار
 from config import DEFAULT_SPECIALTIES, DEFAULT_ALLOWED_CHANNELS 
 from database import collection, settings_collection, audit_collection, stats_collection
 
 SETTINGS = {}
 PRICES = {}
 
-# ============================================================
-# القناة الثابتة التي تبقى مسموحة دائمًا (لا يمكن إزالتها عبر الأمر)
-FIXED_ALLOWED_CHANNEL = "ム・💎〢شات・اونر"   # معرف القناة (رقم)
-# ============================================================
+FIXED_ALLOWED_CHANNEL = "ム・💎〢شات・اونر"
 
 def is_admin(interaction: discord.Interaction) -> bool:
-    """Check if the user has administrator permissions in the guild."""
     if not interaction.guild:
         return False
     return interaction.user.guild_permissions.administrator
 
 def format_member_display(guild: discord.Guild, user_id: int, username_hint: str = None) -> str:
-    """Return a nice display string for a user: @username if known, otherwise the ID."""
     member = guild.get_member(user_id)
     if member:
         return f"@{member.name}"
@@ -31,18 +25,13 @@ def format_member_display(guild: discord.Guild, user_id: int, username_hint: str
         return f"@{username_hint}"
     return str(user_id)
 
-# ----------------------------------------------------------------------
-# Works list helpers (stored inside the unified collection)
-# ----------------------------------------------------------------------
 async def load_works() -> list:
-    """Load the list of approved works from the unified collection."""
     doc = await collection.find_one({"_id": "works"})
     if doc and "data" in doc:
         return doc["data"]
     return []
 
 async def save_works(works: list):
-    """Save the works list to the unified collection."""
     await collection.update_one(
         {"_id": "works"},
         {"$set": {"data": works}},
@@ -50,7 +39,6 @@ async def save_works(works: list):
     )
 
 async def get_work(work_name: str) -> dict | None:
-    """Find a work by name (case‑sensitive)."""
     works = await load_works()
     for w in works:
         if w["name"] == work_name:
@@ -58,22 +46,18 @@ async def get_work(work_name: str) -> dict | None:
     return None
 
 def is_work_isolated(work: dict | None) -> bool:
-    """Return True when a work is administratively isolated from visible calculations."""
     return bool(work and work.get("isolated", False))
 
 def get_isolated_work_names(works: list) -> set[str]:
-    """Return names of works that must be hidden from salary/member calculations."""
     return {w.get("name") for w in works if is_work_isolated(w) and w.get("name")}
 
 def filter_visible_entries(entries: list, isolated_work_names: set[str]) -> list:
-    """Hide entries that belong to isolated works, while keeping bonuses/deductions visible."""
     return [
         entry for entry in entries
         if not entry.get("work_name") or entry.get("work_name") not in isolated_work_names
     ]
 
 async def load_visible_records() -> dict:
-    """Load records after excluding entries of isolated works from visible views/calculations."""
     records = await load_records()
     works = await load_works()
     isolated = get_isolated_work_names(works)
@@ -87,7 +71,6 @@ async def load_visible_records() -> dict:
     return visible
 
 def filter_paid_chapters(work: dict, chapters_list: List[str]):
-    """Returns (paid_chapters, free_count) based on work's paid_start."""
     if work.get("paid_start") is None:
         return chapters_list, 0
     paid_start = work["paid_start"]
@@ -106,7 +89,17 @@ def filter_paid_chapters(work: dict, chapters_list: List[str]):
     return paid, free
 
 async def delete_all_records_of_work(work_name: str) -> int:
-    """Delete every record that belongs to a specific work (across all users)."""
+    """
+    Delete every record that belongs to a specific work (across all users).
+    If the work is isolated, no records will be touched and returns 0.
+    """
+    # ✅ فحص العزل قبل الحذف
+    works = await load_works()
+    work_obj = next((w for w in works if w["name"] == work_name), None)
+    if work_obj and is_work_isolated(work_obj):
+        # العمل معزول، لا تمس سجلاته
+        return 0
+
     records = await load_records()
     removed_total = 0
     users_to_delete = []
@@ -130,7 +123,6 @@ async def delete_all_records_of_work(work_name: str) -> int:
 # Core helpers (unchanged logic)
 # ----------------------------------------------------------------------
 async def load_records():
-    """Load records from MongoDB."""
     try:
         doc = await collection.find_one({"_id": "records"})
         if doc and "data" in doc:
@@ -141,7 +133,6 @@ async def load_records():
         return {}
 
 async def save_records(records):
-    """Save records to MongoDB."""
     try:
         await collection.update_one(
             {"_id": "records"},
@@ -152,7 +143,6 @@ async def save_records(records):
         print(f"[ERROR] save_records() - {e}")
 
 async def load_settings():
-    """Load settings from MongoDB, and ensure the fixed channel is always present."""
     try:
         doc = await settings_collection.find_one({"_id": "settings"})
         if doc:
@@ -163,22 +153,18 @@ async def load_settings():
                 doc["payment_hour"] = 0
                 doc["payment_reminder_24h_sent"] = False
                 doc["payment_day_sent"] = False
-            # التأكد من وجود القناة الثابتة في allowed_channels (حتى لو كانت فارغة)
             allowed = doc.get("allowed_channels", [])
             if isinstance(allowed, list):
-                # تحويل أي عنصر نصي رقمي إلى int للمقارنة الصحيحة
                 allowed = [
                     int(x) if isinstance(x, str) and x.isdigit() else x 
                     for x in allowed
                 ]
-                # إضافة القناة الثابتة إذا لم تكن موجودة
                 if FIXED_ALLOWED_CHANNEL not in allowed:
                     allowed.append(FIXED_ALLOWED_CHANNEL)
                 doc["allowed_channels"] = allowed
             else:
                 doc["allowed_channels"] = [FIXED_ALLOWED_CHANNEL]
             return doc
-        # إذا لم توجد إعدادات، ننشئ القائمة الافتراضية مع القناة الثابتة بالإضافة إلى DEFAULT_ALLOWED_CHANNELS
         default_channels = []
         for ch in DEFAULT_ALLOWED_CHANNELS:
             if isinstance(ch, int) or (isinstance(ch, str) and ch.isdigit()):
@@ -223,17 +209,13 @@ async def load_settings():
         }
 
 async def save_settings(settings):
-    """Save settings to MongoDB, but always force the fixed channel into allowed_channels."""
-    # عمل نسخة لتجنب تعديل الأصل مباشرة
     settings_copy = settings.copy()
     allowed = settings_copy.get("allowed_channels", [])
     if isinstance(allowed, list):
-        # تحويل الأرقام النصية إلى int
         allowed = [
             int(x) if isinstance(x, str) and x.isdigit() else x 
             for x in allowed
         ]
-        # إضافة القناة الثابتة إذا لم تكن موجودة
         if FIXED_ALLOWED_CHANNEL not in allowed:
             allowed.append(FIXED_ALLOWED_CHANNEL)
         settings_copy["allowed_channels"] = allowed
@@ -249,13 +231,11 @@ async def save_settings(settings):
         print(f"[ERROR] save_settings() - {e}")
 
 def rebuild_prices():
-    """Rebuild global PRICES dict from active specialties in SETTINGS."""
     specialties = SETTINGS.get("specialties", DEFAULT_SPECIALTIES)
     PRICES.clear()
     PRICES.update({k: v["price"] for k, v in specialties.items() if v.get("active", True)})
 
 async def log_audit(action, moderator_id, target_id, details):
-    """Log an admin action."""
     log_entry = {
         "action": action,
         "moderator_id": str(moderator_id),
@@ -266,12 +246,10 @@ async def log_audit(action, moderator_id, target_id, details):
     await audit_collection.insert_one(log_entry)
 
 async def log_unauthorized(user_id, command_name):
-    """Log an unauthorized attempt."""
     await log_audit("محاولة_غير_مصرح_بها", user_id, None,
                     f"محاولة استخدام الأمر {command_name} بدون صلاحية")
 
 async def update_stats():
-    """Update comprehensive stats."""
     records = await load_visible_records()
     total_entries = sum(len(entries) for entries in records.values())
     total_amount = 0
@@ -403,11 +381,9 @@ def parse_mixed_types(types_input, chapters_count):
         return [types_input] * chapters_count
 
 def map_type(t):
-    """Convert user-friendly type (with spaces) to internal key (underscores)."""
     return t.strip().replace(' ', '_')
 
 def is_duplicate(records, user_id, work_name, chapter, work_type):
-    """Check if the same (work, chapter, type) already exists for this user."""
     user_entries = records.get(str(user_id), [])
     for e in user_entries:
         if (e.get("work_name") == work_name and 
