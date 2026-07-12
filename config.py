@@ -31,8 +31,8 @@ DEFAULT_ALLOWED_CHANNELS = ["تسجيــــــــل-اعمال〢💵", "ム
 # Initial specialties definition (will be stored in settings)
 DEFAULT_SPECIALTIES = {
     "تحرير": {"price": 0.50, "active": True, "last_modified": datetime.utcnow().isoformat()},
-    "ترجمة_كوري": {"price": 0.75, "active": True, "last_modified": datetime.utcnow().isoformat()},
-    "ترجمة_انجليزي": {"price": 0.60, "active": True, "last_modified": datetime.utcnow().isoformat()},
+    "ترجمة_كوري": {"price": 0.50, "active": True, "last_modified": datetime.utcnow().isoformat()},
+    "ترجمة_انجليزي": {"price": 0.25, "active": True, "last_modified": datetime.utcnow().isoformat()},
     "تبييض": {"price": 0.25, "active": True, "last_modified": datetime.utcnow().isoformat()},
     "سحب": {"price": 0.01, "active": True, "last_modified": datetime.utcnow().isoformat()},
     "دمج": {"price": 0.01, "active": True, "last_modified": datetime.utcnow().isoformat()},
